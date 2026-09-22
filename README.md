@@ -4,13 +4,36 @@
 
 The Crafter Station mark as real 3D tubes, like three.js's `TorusKnotGeometry`, rendered on WebGPU
 with [vgpu](https://vgpu.sh). Every stroke keeps the mark's exact path, weight, gaps and joins, and is
-swept into a round tube with a black lacquer finish, from the first frame and at every angle.
+swept into a round tube you can finish in lacquer, chrome, gold or anything in between.
 
 | Input                     | Does                                                         |
 | ------------------------- | ------------------------------------------------------------ |
-| Drag, mouse or one finger | Turn it; let go and it drifts, then springs back to face you |
-| `?turn=yaw,pitch`         | Pins a pose in degrees, for stills                           |
-| `?still`                  | Skips the intro swing                                        |
+| Drag, mouse or one finger | Turn it; it keeps its pose, with a little drift when flicked |
+| Scroll, trackpad pinch    | Zoom (0.4x to 3x)                                            |
+| Handle on the right edge  | Opens the look drawer                                        |
+| `?turn=yaw,pitch`         | Starts at a pose in degrees, for stills                      |
+
+The drawer holds six finishes (Lacquer, Chrome, Gold, Porcelain, Rubber, Candy), tube and
+background colours, metal, roughness, clearcoat, exposure, a turn of the studio lights, tube
+thickness, zoom and a turntable spin. The whole state, pose included, is live JSON at the bottom:
+**Copy JSON** puts it on the clipboard, and pasting or editing JSON there applies it at once (a
+red border means it does not parse yet). The last state is kept in the browser between visits.
+
+```json
+{
+  "color": "#111111",
+  "metalness": 0,
+  "roughness": 0.06,
+  "clearcoat": 0,
+  "background": "#ffffff",
+  "exposure": 1,
+  "light": 0,
+  "thickness": 1,
+  "zoom": 1,
+  "spin": 0,
+  "orientation": [0, 0, 0, 1]
+}
+```
 
 ```bash
 npm install
@@ -46,15 +69,17 @@ tubes behind it and writes `src/knot/strands.ts`:
 
 ## How it renders
 
-| Pass    | Target                              | Draws                                                                                                                |
-| ------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Knot    | `lit` (rgba16float, 4x MSAA, depth) | the tubes in black lacquer: Fresnel 0.045 over analytic studio softboxes and a white backdrop, baked contact shadows |
-| Present | canvas                              | composited over white in sRGB, soft shoulder above 0.7, dithering                                                    |
+| Pass    | Target                              | Draws                                                                                                                                                                                                       |
+| ------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Knot    | `lit` (rgba16float, 4x MSAA, depth) | the tubes: metal/roughness with a clearcoat layer over analytic studio softboxes (turnable) and a backdrop in the background colour, baked contact shadows, thickness scaled around each tube's centre line |
+| Present | canvas                              | composited over the background in sRGB, soft shoulder above 0.7, dithering                                                                                                                                  |
 
 ```
 scripts/fit.ts        mark.svg outline to strands.ts
 src/knot/             mark, spline, strands (generated), tube sweep, occlusion
 src/render/           renderer, camera, shaders (knot, studio, present)
-src/interaction/      pose (inertia, spring back), pointer
+src/interaction/      pose (drift, spin), pointer (drag, zoom)
+src/state/            look (finishes, ranges, JSON parsing), store, snapshot, saved
+src/ui/               drawer
 src/poster.ts         the SVG shown without WebGPU
 ```
