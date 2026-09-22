@@ -5,40 +5,69 @@ import { layout } from "./layout";
 import { fromEuler } from "./math/quat";
 import { createPoster } from "./poster";
 import { createRenderer } from "./render/renderer";
+import { limit, luminance } from "./state/look";
+import { load, save } from "./state/saved";
+import { snapshot } from "./state/snapshot";
+import { createStore } from "./state/store";
+import { createDrawer, type Drawer } from "./ui/drawer";
 import "./styles.css";
 
-const INTRO = 900;
+const SETTLE = 400;
 
 const canvas = document.querySelector<HTMLCanvasElement>("#stage")!;
 const hint = document.querySelector<HTMLElement>("#hint")!;
+if (matchMedia("(pointer: coarse)").matches) hint.textContent = "Drag to turn";
 const params = new URLSearchParams(location.search);
 const fitted = layout(Number(params.get("frame")) || undefined);
 const turn = params
   .get("turn")
   ?.split(",")
   .map((degrees) => (Number(degrees) * Math.PI) / 180);
-const pose = createPose(turn && fromEuler(turn[1] ?? 0, turn[0] ?? 0, 0));
-const renderer = createRenderer(canvas, buildKnot(), pose, { layout: fitted });
+const saved = load();
+const look = createStore(saved.look);
+const pose = createPose(turn ? fromEuler(turn[1] ?? 0, turn[0] ?? 0, 0) : (saved.orientation ?? undefined));
 
-attachPointer(canvas, pose, () => {
-  hint.dataset.hidden = "";
+let drawer: Drawer | undefined;
+let settling = 0;
+const persist = () => {
+  clearTimeout(settling);
+  settling = window.setTimeout(() => save(snapshot(look.get(), pose.orientation)), SETTLE);
+};
+
+const renderer = createRenderer(canvas, buildKnot(), pose, {
+  layout: fitted,
+  look,
+  onFrame: () => {
+    drawer?.follow();
+    persist();
+  },
+});
+drawer = createDrawer(look, pose, renderer.invalidate);
+
+const apply = () => {
+  const { background, spin } = look.get();
+  document.documentElement.dataset.tone = luminance(background) > 0.3 ? "light" : "dark";
+  document.body.style.background = background;
+  pose.spin(spin);
   renderer.invalidate();
+};
+look.subscribe(apply);
+apply();
+
+attachPointer(canvas, pose, {
+  change: () => {
+    hint.dataset.hidden = "";
+    renderer.invalidate();
+  },
+  zoom: (factor) => look.set({ zoom: limit("zoom", look.get().zoom * factor) }),
 });
 
-renderer.ready
-  .then(() => {
-    if (params.has("still") || turn) return;
-    setTimeout(() => {
-      pose.nudge();
-      renderer.invalidate();
-    }, INTRO);
-  })
-  .catch((error: unknown) => {
-    const poster = createPoster(fitted);
-    const fit = () => poster.fit(canvas.clientWidth, canvas.clientHeight);
-    fit();
-    window.addEventListener("resize", fit);
-    document.body.append(poster.element);
-    hint.textContent = "Turning it needs WebGPU";
-    console.error(error);
-  });
+renderer.ready.catch((error: unknown) => {
+  const poster = createPoster(fitted);
+  const fit = () => poster.fit(canvas.clientWidth, canvas.clientHeight);
+  fit();
+  window.addEventListener("resize", fit);
+  document.body.append(poster.element);
+  hint.textContent = "Turning it needs WebGPU";
+  console.error(error);
+});

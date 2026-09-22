@@ -9,6 +9,7 @@ export type Span = readonly [from: number, to: number];
 
 export interface Ring {
   readonly centre: Vec3;
+  readonly core: Vec3;
   readonly tangent: Vec3;
   readonly normal: Vec3;
   readonly binormal: Vec3;
@@ -21,6 +22,7 @@ export interface Surface {
   readonly sides: number;
   readonly positions: Vec3[];
   readonly normals: Vec3[];
+  readonly cores: Vec3[];
   readonly indices: number[];
 }
 
@@ -64,6 +66,7 @@ export function sweep(spline: Spline, span: Span, spacing: number): Ring[] {
     const speed = vec3.length(xyz(velocity));
     return {
       centre: xyz(point),
+      core: xyz(point),
       tangent: vec3.scale(xyz(velocity), 1 / speed),
       radius: point[3],
       lean: Math.atan(velocity[3] / speed),
@@ -104,6 +107,7 @@ export function surface(path: readonly Ring[], sides: number): Surface {
   const rings = capped(path);
   const positions: Vec3[] = [];
   const normals: Vec3[] = [];
+  const cores: Vec3[] = [];
   const indices: number[] = [];
   rings.forEach((ring, i) => {
     for (let j = 0; j < sides; j++) {
@@ -113,6 +117,7 @@ export function surface(path: readonly Ring[], sides: number): Surface {
         vec3.scale(ring.binormal, Math.sin(angle)),
       );
       positions.push(vec3.add(ring.centre, vec3.scale(outward, ring.radius)));
+      cores.push(ring.core);
       normals.push(
         vec3.sub(vec3.scale(outward, Math.cos(ring.lean)), vec3.scale(ring.tangent, Math.sin(ring.lean))),
       );
@@ -122,5 +127,5 @@ export function surface(path: readonly Ring[], sides: number): Surface {
       }
     }
   });
-  return { rings, sides, positions, normals, indices };
+  return { rings, sides, positions, normals, cores, indices };
 }

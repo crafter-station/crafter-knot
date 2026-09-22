@@ -15,15 +15,17 @@ import {
 import type { Pose } from "../interaction/pose";
 import type { KnotMesh } from "../knot";
 import { rotation } from "../math/mat4";
+import { linear, type Look } from "../state/look";
+import type { Store } from "../state/store";
 import type { Layout } from "../layout";
 import { viewProjection } from "./camera";
 import knotWgsl from "./shaders/knot.wgsl";
 import presentWgsl from "./shaders/present.wgsl";
 
-const BACKGROUND = [1, 1, 1] as const;
-
 export interface Options {
   readonly layout: Layout;
+  readonly look: Store<Look>;
+  readonly onFrame: () => void;
 }
 
 export interface Renderer {
@@ -84,6 +86,7 @@ export function createRenderer(
         buffers: [
           { data: mesh.positions, attributes: { position: "float32x3" } },
           { data: mesh.normals, attributes: { normal: "float32x3" } },
+          { data: mesh.cores, attributes: { core: "float32x3" } },
           { data: mesh.occlusion, attributes: { occlusion: "float32" } },
         ],
         indices: mesh.indices,
@@ -91,14 +94,12 @@ export function createRenderer(
       cull: "back",
       label: "knot",
     });
-    const present = effect(gpu, presentWgsl, {
-      label: "present",
-      set: { present: { background: BACKGROUND } },
-    });
+    const present = effect(gpu, presentWgsl, { label: "present" });
     await Promise.all([knot.compile(lit), present.compile({ colors: [output.format] })]);
     if (disposed) return;
     stage = { gpu, output, lit, knot, present };
     output.onResize(invalidate);
+    options.look.subscribe(invalidate);
     render(stage, pose, options);
   };
 
@@ -114,16 +115,30 @@ export function createRenderer(
   };
 }
 
-function render({ gpu, output, lit, knot, present }: Stage, pose: Pose, { layout }: Options): void {
+function render({ gpu, output, lit, knot, present }: Stage, pose: Pose, options: Options): void {
+  const look = options.look.get();
+  const background = linear(look.background);
   frame(gpu, (current) => {
     const [width, height] = output.size;
     if (lit.size[0] !== width || lit.size[1] !== height) lit.resize(output.size);
-    const markSize = layout(width / output.dpr, height / output.dpr) * output.dpr;
+    const markSize = options.layout(width / output.dpr, height / output.dpr) * output.dpr * look.zoom;
     knot.set({
-      knot: { viewProjection: viewProjection(output.size, markSize), model: rotation(pose.orientation) },
+      knot: {
+        viewProjection: viewProjection(output.size, markSize),
+        model: rotation(pose.orientation),
+        color: linear(look.color),
+        metalness: look.metalness,
+        backdrop: background,
+        roughness: look.roughness,
+        clearcoat: look.clearcoat,
+        exposure: look.exposure,
+        light: (look.light * Math.PI) / 180,
+        thickness: look.thickness,
+      },
     });
-    present.set({ scene: lit });
+    present.set({ scene: lit, present: { background } });
     current.pass({ target: lit, clear: [0, 0, 0, 0] }, (pass) => pass.draw(knot));
     current.pass({ target: output }, (pass) => pass.draw(present));
   });
+  options.onFrame();
 }

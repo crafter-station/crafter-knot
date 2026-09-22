@@ -9,6 +9,7 @@ const SIDES = 64;
 export interface KnotMesh {
   readonly positions: Float32Array<ArrayBuffer>;
   readonly normals: Float32Array<ArrayBuffer>;
+  readonly cores: Float32Array<ArrayBuffer>;
   readonly occlusion: Float32Array<ArrayBuffer>;
   readonly indices: Uint32Array<ArrayBuffer>;
 }
@@ -29,6 +30,7 @@ export function buildKnot(): KnotMesh {
   return {
     positions: new Float32Array(surfaces.flatMap((s) => s.positions.flat())),
     normals: new Float32Array(surfaces.flatMap((s) => s.normals.flat())),
+    cores: new Float32Array(surfaces.flatMap((s) => s.cores.flat())),
     occlusion: new Float32Array(shade.flat()),
     indices: new Uint32Array(indices),
   };
