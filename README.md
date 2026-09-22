@@ -1,10 +1,11 @@
 # crafter-knot
 
-![The Crafter Station mark as glossy 3D tubes, front and turned](.github/hero.png)
+![The Crafter Station mark as glossy black tubes, and as chrome turned in a sunrise field](.github/hero.jpg)
 
 The Crafter Station mark as real 3D tubes, like three.js's `TorusKnotGeometry`, rendered on WebGPU
 with [vgpu](https://vgpu.sh). Every stroke keeps the mark's exact path, weight, gaps and joins, and is
-swept into a tube you can shape, texture and finish from a drawer, then export as a PNG.
+swept into a tube you can shape, texture and finish from a drawer, lit by a studio or by the
+sunrise panorama from three.js's UltraHDR example, then export as a PNG.
 
 | Input                     | Does                                                         |
 | ------------------------- | ------------------------------------------------------------ |
@@ -18,10 +19,11 @@ Carbon) and every setting behind them:
 
 | Section  | Controls                                                                                                                         |
 | -------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Material | tube and background colours, metal, roughness, clearcoat, iridescence, glow                                                      |
+| Material | tube colour, metal, roughness, clearcoat, iridescence, glow                                                                      |
 | Texture  | pattern (rings, stripes, checker, dots) in an accent colour, scale, slant into a spiral                                          |
 | Shape    | thickness (0.1x to 2.5x), depth (flattened or tall profiles), round or faceted profile (3 to 8 sides), twist, round or flat ends |
-| Light    | exposure, highlights, fill, rim, turn of the studio lights, bloom, vignette                                                      |
+| Scene    | background colour, environment (studio or sunrise), backdrop (the colour or the scene itself), backdrop blur                     |
+| Light    | exposure, highlights, fill, rim, turn of the lights or the sky, bloom, vignette                                                  |
 | Camera   | zoom, perspective (0 to 70 degrees), turntable spin, face front                                                                  |
 | Export   | Save PNG at screen resolution, with the background or transparent                                                                |
 
@@ -43,11 +45,14 @@ parse yet). The last state is kept in the browser between visits. The default:
   "pattern": "none",
   "scale": 6,
   "slant": 0,
-  "thickness": 1,
+  "thickness": 1.8,
   "flatten": 1,
   "facets": 0,
   "twist": 0,
   "ends": "round",
+  "environment": "studio",
+  "backdrop": "color",
+  "blur": 0,
   "exposure": 1,
   "highlights": 1,
   "fill": 1,
@@ -80,28 +85,54 @@ tubes behind it and writes `src/knot/strands.ts`:
    (0.44) on the bridge.
 4. **Gaps.** The loop is cut where the mark leaves a gap, so it becomes two open pieces whose
    rounded ends land on the mark's own ends. All three tubes lie in one plane; nothing crosses.
+   Wider tubes would close the gaps, so `src/knot/gaps.ts` pulls each end back until its gap grows
+   with the tube, stopping short of the join behind it. The mark stays open up to about 2.2x.
 5. **Sweep.** `src/knot/tube.ts` builds rotation-minimising frames (double reflection) and emits a
    ring every 0.012 units: 64 smooth sides with normals that follow the changing radius, or 3 to 8
    flat-shaded facets, turned by the twist, closed by hemispheres or flat discs. Each vertex also
    carries its centre-line point (so thickness and depth scale around the tube's own axis in the
    vertex shader) and its surface coordinates (length along, turn around) for the patterns.
-   `src/knot/occlusion.ts` bakes contact shadows per vertex where tubes meet. Changing the profile,
-   twist or ends rebuilds the mesh (about 150 ms); everything else is a uniform.
+   `src/knot/occlusion.ts` bakes contact shadows per vertex where tubes meet. Changing the
+   thickness, profile, twist or ends rebuilds the mesh in a worker (about 100 ms) while the vertex
+   shader stretches the current one, so drags stay smooth; everything else is a uniform.
+
+## The sunrise
+
+`src/assets/spruit-sunrise.hdr.jpg` is the 2048x1024 UltraHDR JPEG from three.js's
+`webgl_loader_texture_ultrahdr` example: a normal JPEG plus a gain map that can brighten any pixel
+up to 2^16 times. `src/render/ultrahdr.ts` finds both images through the multi-picture index and
+reads the `hdrgm` metadata (log2 boost range, gamma, offsets). The first time the sunrise is
+chosen, `src/render/sky.ts` does the rest on the GPU:
+
+1. Decode base x 2^gain into rgba16float, with the sun clamped below the half-float limit.
+2. Build a mip chain (2x2 box).
+3. Prefilter six roughness levels (0 to 1) of GGX reflections by filtered importance sampling, 128
+   samples each, reading the mip that matches each sample's footprint.
+4. Convolve a 32x16 irradiance map (cosine lobe) for diffuse light.
+
+The knot reads the level for its roughness and the irradiance for its normal; highlights and fill
+scale the two. The present pass draws the panorama behind the mark through a 50-degree lens (or the
+perspective, when wider), blurred through the same levels.
 
 ## How it renders
 
-| Pass    | Target                              | Draws                                                                                                                                                                                                                                                                                   |
-| ------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Knot    | `lit` (rgba16float, 4x MSAA, depth) | the tubes: metal/roughness with a clearcoat layer and thin-film iridescence over analytic studio softboxes (turnable, with highlight, fill and rim levels) and a backdrop in the background colour, patterns in surface coordinates, baked contact shadows, orthographic or perspective |
-| Bloom   | 6 levels, 1/2 to 1/64 res           | only when bloom is above 0: soft threshold at 0.75, 13-tap downsample, tent upsample mixed at 0.85                                                                                                                                                                                      |
-| Present | canvas                              | composited over the background in sRGB, bloom added in linear light, vignette, dithering; premultiplied alpha for transparent PNGs                                                                                                                                                      |
+| Pass    | Target                              | Draws                                                                                                                                                                                                                                                                      |
+| ------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sky     | once, when the sunrise is chosen    | gain-map decode, mip chain, six prefiltered roughness levels, irradiance                                                                                                                                                                                                   |
+| Knot    | `lit` (rgba16float, 4x MSAA, depth) | the tubes: metal/roughness with a clearcoat layer and thin-film iridescence over analytic studio softboxes (turnable, with highlight, fill and rim levels) or the prefiltered sunrise, patterns in surface coordinates, baked contact shadows, orthographic or perspective |
+| Bloom   | 6 levels, 1/2 to 1/64 res           | only when bloom is above 0: soft threshold at 0.75, 13-tap downsample, tent upsample mixed at 0.85                                                                                                                                                                         |
+| Present | canvas                              | composited over the background colour or the sunrise in sRGB, bloom added in linear light, vignette, dithering; premultiplied alpha for transparent PNGs                                                                                                                   |
 
 ```
 scripts/fit.ts        mark.svg outline to strands.ts
-src/knot/             mark, spline, strands (generated), tube sweep, occlusion
-src/render/           renderer, camera, bloom, shaders (knot, studio, bloom, present)
+src/knot/             mark, spline, strands (generated), tube sweep, gaps, occlusion, worker
+src/render/           renderer, camera, bloom, sky, ultrahdr, shaders (knot, studio, sky, bloom, present)
+src/assets/           the sunrise UltraHDR panorama
 src/interaction/      pose (drift, spin), pointer (drag, zoom)
 src/state/            look (finishes, ranges, JSON parsing), store, snapshot, saved
 src/ui/               drawer
 src/poster.ts         the SVG shown without WebGPU
 ```
+
+The sunrise panorama is Spruit Sunrise from [Poly Haven](https://polyhaven.com/a/spruit_sunrise)
+(CC0), in the UltraHDR conversion shipped with the three.js examples.

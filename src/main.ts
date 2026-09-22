@@ -1,6 +1,7 @@
 import { attachPointer } from "./interaction/pointer";
 import { createPose } from "./interaction/pose";
-import { buildKnot, type Shape } from "./knot";
+import type { Shape } from "./knot";
+import { createBuilder } from "./knot/builder";
 import { layout } from "./layout";
 import { fromEuler } from "./math/quat";
 import { createPoster } from "./poster";
@@ -26,7 +27,8 @@ const turn = params
 const saved = load();
 const look = createStore(saved.look);
 const pose = createPose(turn ? fromEuler(turn[1] ?? 0, turn[0] ?? 0, 0) : (saved.orientation ?? undefined));
-const shapeOf = ({ facets, twist, ends }: Look): Shape => ({ facets, twist, ends });
+const shapeOf = ({ facets, twist, ends, thickness }: Look): Shape => ({ facets, twist, ends, thickness });
+const builder = createBuilder();
 
 let drawer: Drawer | undefined;
 let settling = 0;
@@ -35,7 +37,7 @@ const persist = () => {
   settling = window.setTimeout(() => save(snapshot(look.get(), pose.orientation)), SETTLE);
 };
 
-const renderer = createRenderer(canvas, buildKnot(shapeOf(look.get())), pose, {
+const renderer = createRenderer(canvas, builder.build(shapeOf(look.get())), pose, {
   layout: fitted,
   look,
   onFrame: () => {
@@ -53,14 +55,15 @@ const reshape = async () => {
   if (GEOMETRY.every((key) => wanted[key] === built[key])) return;
   building = true;
   built = wanted;
-  await renderer.reshape(buildKnot(shapeOf(wanted)));
+  await renderer.reshape(await builder.build(shapeOf(wanted)));
   building = false;
   reshape();
 };
 
 const apply = () => {
-  const { background, spin } = look.get();
-  document.documentElement.dataset.tone = luminance(background) > 0.3 ? "light" : "dark";
+  const { background, spin, environment, backdrop } = look.get();
+  const scenic = environment !== "studio" && backdrop === "scene";
+  document.documentElement.dataset.tone = !scenic && luminance(background) > 0.3 ? "light" : "dark";
   document.body.style.background = background;
   pose.spin(spin);
   renderer.invalidate();

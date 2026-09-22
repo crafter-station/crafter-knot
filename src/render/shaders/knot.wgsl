@@ -1,3 +1,4 @@
+import { equirect, turned } from "./sky.wgsl";
 import { studio } from "./studio.wgsl";
 
 const TAU = 6.2831853;
@@ -29,9 +30,14 @@ struct Knot {
   scale: f32,
   slant: f32,
   circumference: f32,
+  sky: f32,
+  levels: f32,
 }
 
 @group(0) @binding(0) var<uniform> knot: Knot;
+@group(0) @binding(1) var specular: texture_2d<f32>;
+@group(0) @binding(2) var irradiance: texture_2d<f32>;
+@group(0) @binding(3) var skySampler: sampler;
 
 struct VertexOut {
   @builtin(position) position: vec4f,
@@ -95,9 +101,23 @@ fn film(facing: f32) -> vec3f {
   return 0.5 + 0.5 * cos(TAU * (phase + vec3f(0.0, 0.33, 0.67)));
 }
 
+fn outdoors(map: texture_2d<f32>, direction: vec3f, level: f32) -> vec3f {
+  return textureSampleLevel(map, skySampler, equirect(turned(direction, knot.rig.x)), level).rgb;
+}
+
 fn environment(direction: vec3f, roughness: f32) -> vec3f {
+  if (knot.sky > 0.5) {
+    return outdoors(specular, direction, roughness * knot.levels) * knot.rig.y;
+  }
   let spread = roughness * roughness;
   return studio(direction, SHARP + spread * SOFT, knot.backdrop, knot.rig) / (1.0 + spread * 4.0);
+}
+
+fn ambient(normal: vec3f) -> vec3f {
+  if (knot.sky > 0.5) {
+    return outdoors(irradiance, normal, 0.0) * knot.rig.z;
+  }
+  return studio(normal, DIFFUSE_BLUR, knot.backdrop, knot.rig) * 0.8 + AMBIENT * knot.rig.z;
 }
 
 @fragment
@@ -115,8 +135,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4f {
   let f0 = mix(vec3f(DIELECTRIC), base, knot.metalness);
   let fresnel = f0 + (max(vec3f(1.0 - knot.roughness), f0) - f0) * grazing;
   let specular = environment(reflected, knot.roughness) * fresnel * shadow * tint;
-  let irradiance = studio(normal, DIFFUSE_BLUR, knot.backdrop, knot.rig) * 0.8 + AMBIENT * knot.rig.z;
-  let diffuse = base * (1.0 - knot.metalness) * (1.0 - fresnel) * irradiance * in.occlusion;
+  let diffuse = base * (1.0 - knot.metalness) * (1.0 - fresnel) * ambient(normal) * in.occlusion;
 
   let coat = knot.clearcoat * (COAT + (1.0 - COAT) * grazing);
   let gloss = environment(reflected, 0.0) * coat * shadow * tint;

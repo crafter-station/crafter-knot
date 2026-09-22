@@ -12,8 +12,9 @@ import {
   type Surface,
   type Target,
 } from "vgpu";
+import sunrise from "../assets/spruit-sunrise.hdr.jpg";
 import type { Pose } from "../interaction/pose";
-import { MEAN_RADIUS, type KnotMesh } from "../knot";
+import type { KnotMesh } from "../knot";
 import type { Layout } from "../layout";
 import { rotation } from "../math/mat4";
 import { linear, PATTERNS, type Look } from "../state/look";
@@ -22,6 +23,14 @@ import { createBloom, type Bloom } from "./bloom";
 import { createCamera } from "./camera";
 import knotWgsl from "./shaders/knot.wgsl";
 import presentWgsl from "./shaders/present.wgsl";
+import { emptySky, loadSky, skySampler, type Sky } from "./sky";
+
+const TAU = Math.PI * 2;
+const BACKDROP_FOV = 50;
+
+type Outdoors = Exclude<Look["environment"], "studio">;
+
+const SKIES: Record<Outdoors, string> = { sunrise };
 
 export interface Options {
   readonly layout: Layout;
@@ -40,6 +49,8 @@ export interface Renderer {
 interface Tube {
   readonly draw: Draw;
   readonly geometry: ReturnType<typeof geometry>;
+  readonly thickness: number;
+  readonly radius: number;
 }
 
 interface Stage {
@@ -48,7 +59,10 @@ interface Stage {
   readonly lit: Target;
   readonly bloom: Bloom;
   readonly present: Effect;
+  readonly sampler: GPUSampler;
   tube: Tube;
+  sky: Sky;
+  outdoors?: Outdoors;
 }
 
 function createTube(gpu: Gpu, mesh: KnotMesh): Tube {
@@ -65,12 +79,14 @@ function createTube(gpu: Gpu, mesh: KnotMesh): Tube {
   return {
     geometry: shape,
     draw: draw(gpu, { shader: knotWgsl, geometry: shape, cull: "back", label: "knot" }),
+    thickness: mesh.thickness,
+    radius: mesh.radius,
   };
 }
 
 export function createRenderer(
   canvas: HTMLCanvasElement,
-  mesh: KnotMesh,
+  mesh: Promise<KnotMesh>,
   pose: Pose,
   options: Options,
 ): Renderer {
@@ -79,6 +95,7 @@ export function createRenderer(
   let stage: Stage | undefined;
   let request = 0;
   let previous = 0;
+  const loading = new Set<Outdoors>();
 
   const tick = (now: number) => {
     request = 0;
@@ -95,8 +112,27 @@ export function createRenderer(
     request = requestAnimationFrame(tick);
   };
 
+  const fetchSky = async (current: Stage) => {
+    const { environment } = options.look.get();
+    if (environment === "studio" || environment === current.outdoors || loading.has(environment)) return;
+    loading.add(environment);
+    try {
+      const sky = await loadSky(current.gpu, SKIES[environment]);
+      if (disposed) return sky.destroy();
+      current.sky.destroy();
+      current.sky = sky;
+      current.outdoors = environment;
+      invalidate();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      loading.delete(environment);
+    }
+  };
+
   const start = async () => {
-    gpu = await init();
+    const [created, first] = await Promise.all([init(), mesh]);
+    gpu = created;
     if (disposed) return gpu.dispose();
     const output = surface(gpu, canvas, { dpr: [1, 2], alphaMode: "premultiplied" });
     const lit = target(gpu, {
@@ -106,7 +142,7 @@ export function createRenderer(
       depth: true,
       label: "lit",
     });
-    const tube = createTube(gpu, mesh);
+    const tube = createTube(gpu, first);
     const bloom = createBloom(gpu, lit);
     const present = effect(gpu, presentWgsl, {
       label: "present",
@@ -118,10 +154,25 @@ export function createRenderer(
       present.compile({ colors: [output.format] }),
     ]);
     if (disposed) return;
-    stage = { gpu, output, lit, bloom, present, tube };
+    const current: Stage = {
+      gpu,
+      output,
+      lit,
+      bloom,
+      present,
+      tube,
+      sampler: skySampler(gpu),
+      sky: emptySky(gpu),
+    };
+    await fetchSky(current);
+    if (disposed) return;
+    stage = current;
     output.onResize(invalidate);
-    options.look.subscribe(invalidate);
-    render(stage, pose, options, false);
+    options.look.subscribe(() => {
+      fetchSky(current);
+      invalidate();
+    });
+    render(current, pose, options, false);
   };
 
   const ready = start();
@@ -162,14 +213,12 @@ export function createRenderer(
   };
 }
 
-function render(
-  { gpu, output, lit, bloom, present, tube }: Stage,
-  pose: Pose,
-  options: Options,
-  transparent: boolean,
-): void {
+function render(stage: Stage, pose: Pose, options: Options, transparent: boolean): void {
+  const { gpu, output, lit, bloom, present, tube, sky, sampler } = stage;
   const look = options.look.get();
   const background = linear(look.background);
+  const outdoors = look.environment !== "studio" && look.environment === stage.outdoors;
+  const turn = (look.light * Math.PI) / 180;
   frame(gpu, (current) => {
     const [width, height] = output.size;
     if (lit.size[0] !== width || lit.size[1] !== height) {
@@ -178,12 +227,13 @@ function render(
     }
     const markSize = options.layout(width / output.dpr, height / output.dpr) * output.dpr * look.zoom;
     const camera = createCamera(output.size, markSize, look.perspective);
+    const lens = Math.tan((Math.max(BACKDROP_FOV, look.perspective) * Math.PI) / 360);
     tube.draw.set({
       knot: {
         viewProjection: camera.viewProjection,
         model: rotation(pose.orientation),
         eye: camera.eye,
-        rig: [(look.light * Math.PI) / 180, look.highlights, look.fill, look.rim],
+        rig: [turn, look.highlights, look.fill, look.rim],
         color: linear(look.color),
         metalness: look.metalness,
         accent: linear(look.accent),
@@ -193,17 +243,34 @@ function render(
         iridescence: look.iridescence,
         glow: look.glow,
         exposure: look.exposure,
-        thickness: look.thickness,
+        thickness: look.thickness / tube.thickness,
         flatten: look.flatten,
         pattern: PATTERNS.indexOf(look.pattern),
         scale: look.scale,
         slant: look.slant,
-        circumference: 2 * Math.PI * MEAN_RADIUS,
+        circumference: TAU * tube.radius * look.thickness,
+        sky: outdoors ? 1 : 0,
+        levels: sky.levels,
       },
+      specular: sky.specular,
+      irradiance: sky.irradiance,
+      skySampler: sampler,
     });
     present.set({
       scene: lit,
-      present: { background, vignette: look.vignette, transparent: transparent ? 1 : 0, bloom: look.bloom },
+      sky: sky.specular,
+      skySampler: sampler,
+      present: {
+        background,
+        vignette: look.vignette,
+        lens: [(lens * width) / height, lens],
+        transparent: transparent ? 1 : 0,
+        bloom: look.bloom,
+        scenery: outdoors && look.backdrop === "scene" ? 1 : 0,
+        blur: look.blur * look.blur * sky.levels,
+        turn,
+        exposure: look.exposure,
+      },
     });
     current.pass({ target: lit, clear: [0, 0, 0, 0] }, (pass) => pass.draw(tube.draw));
     if (look.bloom > 0) bloom.run(current);

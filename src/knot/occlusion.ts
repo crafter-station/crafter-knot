@@ -4,6 +4,7 @@ import type { Ring, Surface } from "./tube";
 const REACH = 6;
 const OWN = 3;
 const STRENGTH = 1.1;
+const DENSITY = 4;
 
 interface Probe {
   readonly x: number;
@@ -15,14 +16,17 @@ interface Probe {
 }
 
 function probes(paths: readonly (readonly Ring[])[]): Probe[] {
-  return paths.flatMap((rings, strand) =>
-    rings.map((ring, i) => {
-      const neighbour = rings[i + 1] ?? rings[i - 1];
+  return paths.flatMap((rings, strand) => {
+    const step = vec3.distance(rings[0].centre, rings[1].centre);
+    const stride = Math.max(1, Math.round(rings[0].radius / (DENSITY * step)));
+    const picked = rings.filter((_, i) => i % stride === 0);
+    return picked.map((ring, i) => {
+      const neighbour = picked[i + 1] ?? picked[i - 1];
       const [x, y, z] = ring.centre;
       const weight = vec3.distance(ring.centre, neighbour.centre) / (2 * ring.radius);
       return { x, y, z, radius: ring.radius, strand, weight };
-    }),
-  );
+    });
+  });
 }
 
 export function occlusion(paths: readonly (readonly Ring[])[], surfaces: readonly Surface[]): number[][] {

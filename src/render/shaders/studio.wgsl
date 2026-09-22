@@ -1,3 +1,5 @@
+import { turned } from "./sky.wgsl";
+
 struct Panel {
   center: vec3f,
   size: vec2f,
@@ -17,12 +19,6 @@ fn panel(direction: vec3f, p: Panel, blur: f32) -> f32 {
   let local = abs(vec2f(dot(hit, u), dot(hit, v)));
   let inside = smoothstep(p.size * 0.5 + blur, p.size * 0.5 - blur, local);
   return inside.x * inside.y * p.brightness;
-}
-
-fn turned(direction: vec3f, angle: f32) -> vec3f {
-  let c = cos(angle);
-  let s = sin(angle);
-  return vec3f(c * direction.x + s * direction.z, direction.y, c * direction.z - s * direction.x);
 }
 
 export fn studio(direction: vec3f, blur: f32, backdrop: vec3f, rig: vec4f) -> vec3f {

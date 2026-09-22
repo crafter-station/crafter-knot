@@ -1,6 +1,8 @@
 export const PATTERNS = ["none", "rings", "stripes", "checker", "dots"] as const;
 export const ENDS = ["round", "flat"] as const;
 export const FACETS = [0, 3, 4, 5, 6, 8] as const;
+export const ENVIRONMENTS = ["studio", "sunrise"] as const;
+export const BACKDROPS = ["color", "scene"] as const;
 
 export interface Look {
   readonly color: string;
@@ -20,6 +22,9 @@ export interface Look {
   readonly facets: (typeof FACETS)[number];
   readonly twist: number;
   readonly ends: (typeof ENDS)[number];
+  readonly environment: (typeof ENVIRONMENTS)[number];
+  readonly backdrop: (typeof BACKDROPS)[number];
+  readonly blur: number;
   readonly exposure: number;
   readonly highlights: number;
   readonly fill: number;
@@ -34,7 +39,7 @@ export interface Look {
 type KeysOf<T> = { [K in keyof Look]: Look[K] extends T ? K : never }[keyof Look];
 export type NumberKey = Exclude<KeysOf<number>, "facets">;
 export type ColorKey = "color" | "accent" | "background";
-export type ChoiceKey = "pattern" | "facets" | "ends";
+export type ChoiceKey = "pattern" | "facets" | "ends" | "environment" | "backdrop";
 
 export type Control =
   | {
@@ -78,12 +83,18 @@ const range = (
 
 const title = (value: string) => value[0].toUpperCase() + value.slice(1);
 
+const choice = (key: ChoiceKey, label: string, values: readonly string[]): Control => ({
+  kind: "choice",
+  key,
+  label,
+  options: values.map((value) => [value, title(value)]),
+});
+
 export const SECTIONS: readonly Section[] = [
   {
     title: "Material",
     controls: [
       { kind: "color", key: "color", label: "Tube" },
-      { kind: "color", key: "background", label: "Background" },
       range("metalness", "Metal", 0, 1, 0.01),
       range("roughness", "Roughness", 0, 1, 0.01),
       range("clearcoat", "Clearcoat", 0, 1, 0.01),
@@ -94,7 +105,7 @@ export const SECTIONS: readonly Section[] = [
   {
     title: "Texture",
     controls: [
-      { kind: "choice", key: "pattern", label: "Pattern", options: PATTERNS.map((p) => [p, title(p)]) },
+      choice("pattern", "Pattern", PATTERNS),
       { kind: "color", key: "accent", label: "Accent" },
       range("scale", "Scale", 1, 24, 0.1),
       range("slant", "Slant", -2, 2, 0.01),
@@ -112,7 +123,16 @@ export const SECTIONS: readonly Section[] = [
         options: FACETS.map((f) => [f, f ? `${f}` : "Round"]),
       },
       range("twist", "Twist", -6, 6, 0.05, " turns"),
-      { kind: "choice", key: "ends", label: "Ends", options: ENDS.map((e) => [e, title(e)]) },
+      choice("ends", "Ends", ENDS),
+    ],
+  },
+  {
+    title: "Scene",
+    controls: [
+      { kind: "color", key: "background", label: "Background" },
+      choice("environment", "Environment", ENVIRONMENTS),
+      choice("backdrop", "Backdrop", BACKDROPS),
+      range("blur", "Blur", 0, 1, 0.01),
     ],
   },
   {
@@ -138,7 +158,7 @@ export const SECTIONS: readonly Section[] = [
 ];
 
 export const CONTROLS: readonly Control[] = SECTIONS.flatMap((section) => section.controls);
-export const GEOMETRY: readonly (keyof Look)[] = ["facets", "twist", "ends"];
+export const GEOMETRY: readonly (keyof Look)[] = ["facets", "twist", "ends", "thickness"];
 
 const FINISH = {
   color: "#111111",
@@ -198,11 +218,14 @@ export const FINISHES: readonly (readonly [name: string, finish: Finish])[] = [
 
 export const DEFAULT_LOOK: Look = {
   ...FINISH,
-  thickness: 1,
+  thickness: 1.8,
   flatten: 1,
   facets: 0,
   twist: 0,
   ends: "round",
+  environment: "studio",
+  backdrop: "color",
+  blur: 0,
   exposure: 1,
   highlights: 1,
   fill: 1,
