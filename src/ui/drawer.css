@@ -1,21 +1,3 @@
-:root {
-  --fg: #111111;
-  --muted: rgba(17, 17, 17, 0.5);
-  --line: rgba(17, 17, 17, 0.1);
-  --line-strong: rgba(17, 17, 17, 0.24);
-  --glass: rgba(255, 255, 255, 0.7);
-  --press: rgba(17, 17, 17, 0.06);
-}
-
-:root[data-tone="dark"] {
-  --fg: #f1f1f1;
-  --muted: rgba(241, 241, 241, 0.5);
-  --line: rgba(255, 255, 255, 0.1);
-  --line-strong: rgba(255, 255, 255, 0.26);
-  --glass: rgba(20, 20, 22, 0.62);
-  --press: rgba(255, 255, 255, 0.1);
-}
-
 .handle {
   position: fixed;
   top: 50%;
@@ -142,7 +124,7 @@
   padding: 8px 0;
 }
 
-.finishes button:nth-child(-n + 3) {
+.finishes button:nth-child(-n + 6) {
   border-bottom: 1px solid var(--line);
 }
 
@@ -151,10 +133,40 @@
   color: var(--fg);
 }
 
+.choice {
+  display: grid;
+  row-gap: 8px;
+  margin-bottom: 16px;
+}
+
+.segments {
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segments button {
+  padding: 6px 0;
+  font-size: 11px;
+}
+
+.segments button + button {
+  border-left: 1px solid var(--line);
+}
+
+.segments button[aria-pressed="true"],
+.actions button.toggle[aria-pressed="true"] {
+  background: var(--press);
+  color: var(--fg);
+}
+
 .swatches {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 12px 10px;
   margin-bottom: 16px;
 }
 

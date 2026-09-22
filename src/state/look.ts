@@ -1,90 +1,244 @@
+export const PATTERNS = ["none", "rings", "stripes", "checker", "dots"] as const;
+export const ENDS = ["round", "flat"] as const;
+export const FACETS = [0, 3, 4, 5, 6, 8] as const;
+
 export interface Look {
   readonly color: string;
+  readonly accent: string;
+  readonly background: string;
   readonly metalness: number;
   readonly roughness: number;
   readonly clearcoat: number;
-  readonly background: string;
-  readonly exposure: number;
-  readonly light: number;
+  readonly iridescence: number;
+  readonly glow: number;
+  readonly bloom: number;
+  readonly pattern: (typeof PATTERNS)[number];
+  readonly scale: number;
+  readonly slant: number;
   readonly thickness: number;
+  readonly flatten: number;
+  readonly facets: (typeof FACETS)[number];
+  readonly twist: number;
+  readonly ends: (typeof ENDS)[number];
+  readonly exposure: number;
+  readonly highlights: number;
+  readonly fill: number;
+  readonly rim: number;
+  readonly light: number;
+  readonly vignette: number;
   readonly zoom: number;
+  readonly perspective: number;
   readonly spin: number;
 }
 
-export type Finish = Pick<Look, "color" | "metalness" | "roughness" | "clearcoat" | "background">;
+type KeysOf<T> = { [K in keyof Look]: Look[K] extends T ? K : never }[keyof Look];
+export type NumberKey = Exclude<KeysOf<number>, "facets">;
+export type ColorKey = "color" | "accent" | "background";
+export type ChoiceKey = "pattern" | "facets" | "ends";
 
-export interface Range {
-  readonly key: keyof Look;
-  readonly label: string;
-  readonly min: number;
-  readonly max: number;
-  readonly step: number;
-  readonly unit?: string;
+export type Control =
+  | {
+      readonly kind: "range";
+      readonly key: NumberKey;
+      readonly label: string;
+      readonly min: number;
+      readonly max: number;
+      readonly step: number;
+      readonly unit?: string;
+    }
+  | { readonly kind: "color"; readonly key: ColorKey; readonly label: string }
+  | {
+      readonly kind: "choice";
+      readonly key: ChoiceKey;
+      readonly label: string;
+      readonly options: readonly (readonly [value: string | number, label: string])[];
+    };
+
+export interface Section {
+  readonly title: string;
+  readonly controls: readonly Control[];
 }
 
-export const LACQUER: Finish = {
+const range = (
+  key: NumberKey,
+  label: string,
+  min: number,
+  max: number,
+  step: number,
+  unit?: string,
+): Control => ({
+  kind: "range",
+  key,
+  label,
+  min,
+  max,
+  step,
+  unit,
+});
+
+const title = (value: string) => value[0].toUpperCase() + value.slice(1);
+
+export const SECTIONS: readonly Section[] = [
+  {
+    title: "Material",
+    controls: [
+      { kind: "color", key: "color", label: "Tube" },
+      { kind: "color", key: "background", label: "Background" },
+      range("metalness", "Metal", 0, 1, 0.01),
+      range("roughness", "Roughness", 0, 1, 0.01),
+      range("clearcoat", "Clearcoat", 0, 1, 0.01),
+      range("iridescence", "Iridescence", 0, 1, 0.01),
+      range("glow", "Glow", 0, 2, 0.01),
+    ],
+  },
+  {
+    title: "Texture",
+    controls: [
+      { kind: "choice", key: "pattern", label: "Pattern", options: PATTERNS.map((p) => [p, title(p)]) },
+      { kind: "color", key: "accent", label: "Accent" },
+      range("scale", "Scale", 1, 24, 0.1),
+      range("slant", "Slant", -2, 2, 0.01),
+    ],
+  },
+  {
+    title: "Shape",
+    controls: [
+      range("thickness", "Thickness", 0.1, 2.5, 0.01, "×"),
+      range("flatten", "Depth", 0.15, 1.6, 0.01, "×"),
+      {
+        kind: "choice",
+        key: "facets",
+        label: "Profile",
+        options: FACETS.map((f) => [f, f ? `${f}` : "Round"]),
+      },
+      range("twist", "Twist", -6, 6, 0.05, " turns"),
+      { kind: "choice", key: "ends", label: "Ends", options: ENDS.map((e) => [e, title(e)]) },
+    ],
+  },
+  {
+    title: "Light",
+    controls: [
+      range("exposure", "Exposure", 0.2, 3, 0.01),
+      range("highlights", "Highlights", 0, 3, 0.01),
+      range("fill", "Fill", 0, 3, 0.01),
+      range("rim", "Rim", 0, 2, 0.01),
+      range("light", "Light turn", -180, 180, 1, "°"),
+      range("bloom", "Bloom", 0, 2, 0.01),
+      range("vignette", "Vignette", 0, 1, 0.01),
+    ],
+  },
+  {
+    title: "Camera",
+    controls: [
+      range("zoom", "Zoom", 0.4, 3, 0.01, "×"),
+      range("perspective", "Perspective", 0, 70, 1, "°"),
+      range("spin", "Spin", -120, 120, 1, "°/s"),
+    ],
+  },
+];
+
+export const CONTROLS: readonly Control[] = SECTIONS.flatMap((section) => section.controls);
+export const GEOMETRY: readonly (keyof Look)[] = ["facets", "twist", "ends"];
+
+const FINISH = {
   color: "#111111",
+  accent: "#ffffff",
+  background: "#ffffff",
   metalness: 0,
   roughness: 0.06,
   clearcoat: 0,
-  background: "#ffffff",
-};
+  iridescence: 0,
+  glow: 0,
+  bloom: 0,
+  pattern: "none",
+  scale: 6,
+  slant: 0,
+} as const satisfies Partial<Look>;
+
+export type Finish = { -readonly [K in keyof typeof FINISH]: Look[K] };
+
+const finish = (overrides: Partial<Finish>): Finish => ({ ...FINISH, ...overrides });
 
 export const FINISHES: readonly (readonly [name: string, finish: Finish])[] = [
-  ["Lacquer", LACQUER],
-  ["Chrome", { color: "#e4e6ea", metalness: 1, roughness: 0.04, clearcoat: 0, background: "#101012" }],
-  ["Gold", { color: "#f5c46a", metalness: 1, roughness: 0.2, clearcoat: 0, background: "#f3eee5" }],
-  ["Porcelain", { color: "#f2f0eb", metalness: 0, roughness: 0.3, clearcoat: 0.8, background: "#18181b" }],
-  ["Rubber", { color: "#1d1d1f", metalness: 0, roughness: 0.78, clearcoat: 0, background: "#ffffff" }],
-  ["Candy", { color: "#e2412c", metalness: 0, roughness: 0.4, clearcoat: 1, background: "#ffffff" }],
+  ["Lacquer", finish({})],
+  ["Chrome", finish({ color: "#e4e6ea", metalness: 1, roughness: 0.04, background: "#101012" })],
+  ["Gold", finish({ color: "#f5c46a", metalness: 1, roughness: 0.2, background: "#f3eee5" })],
+  ["Porcelain", finish({ color: "#f2f0eb", roughness: 0.3, clearcoat: 0.8, background: "#18181b" })],
+  ["Rubber", finish({ color: "#1d1d1f", roughness: 0.78 })],
+  [
+    "Candy",
+    finish({
+      color: "#f6f3ee",
+      accent: "#d8321f",
+      roughness: 0.35,
+      clearcoat: 1,
+      pattern: "stripes",
+      scale: 3,
+      slant: 0.5,
+    }),
+  ],
+  [
+    "Pearl",
+    finish({ color: "#f3ece6", roughness: 0.18, clearcoat: 1, iridescence: 1, background: "#1c1b20" }),
+  ],
+  ["Neon", finish({ color: "#39e6ff", roughness: 0.3, glow: 1.3, bloom: 1.2, background: "#07070a" })],
+  [
+    "Carbon",
+    finish({
+      color: "#161617",
+      accent: "#2d2d30",
+      roughness: 0.45,
+      clearcoat: 1,
+      pattern: "checker",
+      scale: 12,
+      slant: 0.25,
+    }),
+  ],
 ];
 
-export const DEFAULT_LOOK: Look = { ...LACQUER, exposure: 1, light: 0, thickness: 1, zoom: 1, spin: 0 };
+export const DEFAULT_LOOK: Look = {
+  ...FINISH,
+  thickness: 1,
+  flatten: 1,
+  facets: 0,
+  twist: 0,
+  ends: "round",
+  exposure: 1,
+  highlights: 1,
+  fill: 1,
+  rim: 1,
+  light: 0,
+  vignette: 0,
+  zoom: 1,
+  perspective: 0,
+  spin: 0,
+};
 
-export const MATERIAL: readonly Range[] = [
-  { key: "metalness", label: "Metal", min: 0, max: 1, step: 0.01 },
-  { key: "roughness", label: "Roughness", min: 0, max: 1, step: 0.01 },
-  { key: "clearcoat", label: "Clearcoat", min: 0, max: 1, step: 0.01 },
-];
-
-export const LIGHT: readonly Range[] = [
-  { key: "exposure", label: "Exposure", min: 0.2, max: 3, step: 0.01 },
-  { key: "light", label: "Light turn", min: -180, max: 180, step: 1, unit: "°" },
-];
-
-export const SHAPE: readonly Range[] = [
-  { key: "thickness", label: "Thickness", min: 0.4, max: 1.6, step: 0.01, unit: "×" },
-  { key: "zoom", label: "Zoom", min: 0.4, max: 3, step: 0.01, unit: "×" },
-  { key: "spin", label: "Spin", min: -120, max: 120, step: 1, unit: "°/s" },
-];
-
-const RANGES = [...MATERIAL, ...LIGHT, ...SHAPE];
 const HEX = /^#[0-9a-f]{6}$/i;
 
-export function limit(key: keyof Look, value: number): number {
-  const range = RANGES.find((r) => r.key === key);
-  return range ? Math.min(range.max, Math.max(range.min, value)) : value;
+export function limit(key: NumberKey, value: number): number {
+  const control = CONTROLS.find((c) => c.key === key);
+  return control?.kind === "range" ? Math.min(control.max, Math.max(control.min, value)) : value;
 }
 
-export function sameFinish(look: Look, finish: Finish): boolean {
-  return (Object.keys(finish) as (keyof Finish)[]).every((key) => look[key] === finish[key]);
+export function sameFinish(look: Look, preset: Finish): boolean {
+  return (Object.keys(preset) as (keyof Finish)[]).every((key) => look[key] === preset[key]);
+}
+
+function read(control: Control, value: unknown, fallback: Look[keyof Look]): Look[keyof Look] {
+  if (control.kind === "range")
+    return typeof value === "number" && Number.isFinite(value) ? limit(control.key, value) : fallback;
+  if (control.kind === "color")
+    return typeof value === "string" && HEX.test(value) ? value.toLowerCase() : fallback;
+  return control.options.some(([option]) => option === value) ? (value as Look[keyof Look]) : fallback;
 }
 
 export function readLook(source: unknown, base: Look = DEFAULT_LOOK): Look {
   if (typeof source !== "object" || source === null) return base;
   const input = source as Record<string, unknown>;
-  const colour = (key: "color" | "background") =>
-    typeof input[key] === "string" && HEX.test(input[key]) ? input[key].toLowerCase() : base[key];
-  const numbers = Object.fromEntries(
-    RANGES.map(({ key, min, max }) => {
-      const value = input[key];
-      return [
-        key,
-        typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : base[key],
-      ];
-    }),
-  );
-  return { ...base, ...numbers, color: colour("color"), background: colour("background") };
+  return Object.fromEntries(
+    CONTROLS.map((control) => [control.key, read(control, input[control.key], base[control.key])]),
+  ) as unknown as Look;
 }
 
 export function linear(hex: string): [number, number, number] {

@@ -4,7 +4,7 @@
 
 The Crafter Station mark as real 3D tubes, like three.js's `TorusKnotGeometry`, rendered on WebGPU
 with [vgpu](https://vgpu.sh). Every stroke keeps the mark's exact path, weight, gaps and joins, and is
-swept into a round tube you can finish in lacquer, chrome, gold or anything in between.
+swept into a tube you can shape, texture and finish from a drawer, then export as a PNG.
 
 | Input                     | Does                                                         |
 | ------------------------- | ------------------------------------------------------------ |
@@ -13,36 +13,53 @@ swept into a round tube you can finish in lacquer, chrome, gold or anything in b
 | Handle on the right edge  | Opens the look drawer                                        |
 | `?turn=yaw,pitch`         | Starts at a pose in degrees, for stills                      |
 
-The drawer holds six finishes (Lacquer, Chrome, Gold, Porcelain, Rubber, Candy), tube and
-background colours, metal, roughness, clearcoat, exposure, a turn of the studio lights, tube
-thickness, zoom and a turntable spin. The whole state, pose included, is live JSON at the bottom:
-**Copy JSON** puts it on the clipboard, and pasting or editing JSON there applies it at once (a
-red border means it does not parse yet). The last state is kept in the browser between visits.
+The drawer holds nine finishes (Lacquer, Chrome, Gold, Porcelain, Rubber, Candy, Pearl, Neon,
+Carbon) and every setting behind them:
+
+| Section  | Controls                                                                                                                         |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Material | tube and background colours, metal, roughness, clearcoat, iridescence, glow                                                      |
+| Texture  | pattern (rings, stripes, checker, dots) in an accent colour, scale, slant into a spiral                                          |
+| Shape    | thickness (0.1x to 2.5x), depth (flattened or tall profiles), round or faceted profile (3 to 8 sides), twist, round or flat ends |
+| Light    | exposure, highlights, fill, rim, turn of the studio lights, bloom, vignette                                                      |
+| Camera   | zoom, perspective (0 to 70 degrees), turntable spin, face front                                                                  |
+| Export   | Save PNG at screen resolution, with the background or transparent                                                                |
+
+The whole state, pose included, is live JSON at the bottom: **Copy JSON** puts it on the
+clipboard, and pasting or editing JSON there applies it at once (a red border means it does not
+parse yet). The last state is kept in the browser between visits. The default:
 
 ```json
 {
   "color": "#111111",
+  "accent": "#ffffff",
+  "background": "#ffffff",
   "metalness": 0,
   "roughness": 0.06,
   "clearcoat": 0,
-  "background": "#ffffff",
-  "exposure": 1,
-  "light": 0,
+  "iridescence": 0,
+  "glow": 0,
+  "bloom": 0,
+  "pattern": "none",
+  "scale": 6,
+  "slant": 0,
   "thickness": 1,
+  "flatten": 1,
+  "facets": 0,
+  "twist": 0,
+  "ends": "round",
+  "exposure": 1,
+  "highlights": 1,
+  "fill": 1,
+  "rim": 1,
+  "light": 0,
+  "vignette": 0,
   "zoom": 1,
+  "perspective": 0,
   "spin": 0,
   "orientation": [0, 0, 0, 1]
 }
 ```
-
-```bash
-npm install
-npm run dev
-npm run build && npm run preview
-npm run fit   # refits the tubes to src/knot/mark.svg (needs Bun)
-```
-
-Needs WebGPU: current Chrome, Edge and Safari 26. Without it the page shows the SVG mark.
 
 ## From outline to tubes
 
@@ -63,21 +80,26 @@ tubes behind it and writes `src/knot/strands.ts`:
    (0.44) on the bridge.
 4. **Gaps.** The loop is cut where the mark leaves a gap, so it becomes two open pieces whose
    rounded ends land on the mark's own ends. All three tubes lie in one plane; nothing crosses.
-5. **Sweep.** `src/knot/tube.ts` builds rotation-minimising frames (double reflection), emits 64
-   sides per ring every 0.012 units with normals that follow the changing radius, and closes each
-   end with a hemisphere. `src/knot/occlusion.ts` bakes contact shadows per vertex where tubes meet.
+5. **Sweep.** `src/knot/tube.ts` builds rotation-minimising frames (double reflection) and emits a
+   ring every 0.012 units: 64 smooth sides with normals that follow the changing radius, or 3 to 8
+   flat-shaded facets, turned by the twist, closed by hemispheres or flat discs. Each vertex also
+   carries its centre-line point (so thickness and depth scale around the tube's own axis in the
+   vertex shader) and its surface coordinates (length along, turn around) for the patterns.
+   `src/knot/occlusion.ts` bakes contact shadows per vertex where tubes meet. Changing the profile,
+   twist or ends rebuilds the mesh (about 150 ms); everything else is a uniform.
 
 ## How it renders
 
-| Pass    | Target                              | Draws                                                                                                                                                                                                       |
-| ------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Knot    | `lit` (rgba16float, 4x MSAA, depth) | the tubes: metal/roughness with a clearcoat layer over analytic studio softboxes (turnable) and a backdrop in the background colour, baked contact shadows, thickness scaled around each tube's centre line |
-| Present | canvas                              | composited over the background in sRGB, soft shoulder above 0.7, dithering                                                                                                                                  |
+| Pass    | Target                              | Draws                                                                                                                                                                                                                                                                                   |
+| ------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Knot    | `lit` (rgba16float, 4x MSAA, depth) | the tubes: metal/roughness with a clearcoat layer and thin-film iridescence over analytic studio softboxes (turnable, with highlight, fill and rim levels) and a backdrop in the background colour, patterns in surface coordinates, baked contact shadows, orthographic or perspective |
+| Bloom   | 6 levels, 1/2 to 1/64 res           | only when bloom is above 0: soft threshold at 0.75, 13-tap downsample, tent upsample mixed at 0.85                                                                                                                                                                                      |
+| Present | canvas                              | composited over the background in sRGB, bloom added in linear light, vignette, dithering; premultiplied alpha for transparent PNGs                                                                                                                                                      |
 
 ```
 scripts/fit.ts        mark.svg outline to strands.ts
 src/knot/             mark, spline, strands (generated), tube sweep, occlusion
-src/render/           renderer, camera, shaders (knot, studio, present)
+src/render/           renderer, camera, bloom, shaders (knot, studio, bloom, present)
 src/interaction/      pose (drift, spin), pointer (drag, zoom)
 src/state/            look (finishes, ranges, JSON parsing), store, snapshot, saved
 src/ui/               drawer

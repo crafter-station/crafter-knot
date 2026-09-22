@@ -3,13 +3,11 @@ import { IDENTITY } from "../math/quat";
 import {
   DEFAULT_LOOK,
   FINISHES,
-  LIGHT,
-  MATERIAL,
-  SHAPE,
   readLook,
   sameFinish,
+  SECTIONS,
+  type Control,
   type Look,
-  type Range,
 } from "../state/look";
 import { pretty, readOrientation, snapshot } from "../state/snapshot";
 import type { Store } from "../state/store";
@@ -21,11 +19,16 @@ export interface Drawer {
   follow(): void;
 }
 
-type Attributes = Record<string, string>;
+export interface DrawerOptions {
+  readonly look: Store<Look>;
+  readonly pose: Pose;
+  readonly placed: () => void;
+  readonly capture: (transparent: boolean) => Promise<Blob>;
+}
 
 function node<K extends keyof HTMLElementTagNameMap>(
   tag: K,
-  attributes: Attributes = {},
+  attributes: Record<string, string> = {},
   ...children: (Node | string)[]
 ): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
@@ -34,113 +37,117 @@ function node<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 
-export function createDrawer(look: Store<Look>, pose: Pose, placed: () => void): Drawer {
-  const handle = node("button", { class: "handle", type: "button", "aria-label": "Open look controls" });
-  const close = node("button", { type: "button" }, "Close");
-  const sheet = node(
-    "aside",
-    { class: "sheet", "aria-label": "Look controls" },
-    node("div", { class: "top" }, node("span", { class: "title" }, "Look"), close),
-  );
+const button = (label: string, action: () => void, className = "") => {
+  const element = node("button", { type: "button", class: className }, label);
+  element.addEventListener("click", action);
+  return element;
+};
 
-  const finishes = FINISHES.map(([name, finish]) => {
-    const button = node("button", { type: "button" }, name);
-    button.addEventListener("click", () => look.set(finish));
-    return { button, finish };
-  });
-  sheet.append(
-    node(
-      "div",
-      { class: "finishes", role: "group", "aria-label": "Finish" },
-      ...finishes.map((f) => f.button),
-    ),
-  );
+interface Bound {
+  readonly element: HTMLElement;
+  sync(look: Look): void;
+}
 
-  const swatch = (key: "color" | "background", label: string) => {
-    const input = node("input", { type: "color", "aria-label": label });
-    input.addEventListener("input", () => look.set({ [key]: input.value }));
-    return { key, input, element: node("label", { class: "swatch" }, input, node("span", {}, label)) };
-  };
-  const swatches = [swatch("color", "Tube"), swatch("background", "Background")];
-
-  const slider = ({ key, label, min, max, step, unit = "" }: Range) => {
-    const input = node("input", { type: "range", min: `${min}`, max: `${max}`, step: `${step}` });
-    const readout = node("span", { class: "value" });
-    const digits = Math.max(0, -Math.floor(Math.log10(step)));
-    input.addEventListener("input", () => look.set({ [key]: Number(input.value) }));
-    const sync = (value: number) => {
-      input.value = `${value}`;
-      readout.textContent = `${value.toFixed(digits)}${unit}`;
+function bind(control: Control, look: Store<Look>): Bound {
+  if (control.kind === "color") {
+    const input = node("input", { type: "color", "aria-label": control.label });
+    input.addEventListener("input", () => look.set({ [control.key]: input.value }));
+    return {
+      element: node("label", { class: "swatch" }, input, node("span", {}, control.label)),
+      sync: (current) => (input.value = current[control.key]),
     };
-    return { key, sync, element: node("label", { class: "row" }, node("span", {}, label), readout, input) };
-  };
-  const sliders = [...MATERIAL, ...LIGHT, ...SHAPE].map(slider);
-  const group = (title: string, ranges: readonly Range[], ...extra: Node[]) =>
-    node(
-      "section",
-      {},
-      node("h3", {}, title),
-      ...extra,
-      ...sliders.filter((s) => ranges.some((r) => r.key === s.key)).map((s) => s.element),
-    );
-
-  const front = node("button", { type: "button", class: "quiet" }, "Face front");
-  front.addEventListener("click", () => {
-    pose.place(IDENTITY);
-    placed();
+  }
+  if (control.kind === "choice") {
+    const options = control.options.map(([value, label]) => ({
+      value,
+      element: button(label, () => look.set({ [control.key]: value } as Partial<Look>)),
+    }));
+    return {
+      element: node(
+        "div",
+        { class: "choice" },
+        node("span", {}, control.label),
+        node(
+          "div",
+          { class: "segments", role: "group", "aria-label": control.label },
+          ...options.map((o) => o.element),
+        ),
+      ),
+      sync: (current) =>
+        options.forEach(({ value, element }) =>
+          element.setAttribute("aria-pressed", `${current[control.key] === value}`),
+        ),
+    };
+  }
+  const { key, label, min, max, step, unit = "" } = control;
+  const input = node("input", {
+    type: "range",
+    min: `${min}`,
+    max: `${max}`,
+    step: `${step}`,
+    "aria-label": label,
   });
+  const readout = node("span", { class: "value" });
+  const digits = Math.max(0, -Math.floor(Math.log10(step)));
+  input.addEventListener("input", () => look.set({ [key]: Number(input.value) }));
+  return {
+    element: node("label", { class: "row" }, node("span", {}, label), readout, input),
+    sync: (current) => {
+      input.value = `${current[key]}`;
+      readout.textContent = `${current[key].toFixed(digits)}${unit}`;
+    },
+  };
+}
+
+function download(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const link = node("a", { href: url, download: name });
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export function createDrawer({ look, pose, placed, capture }: DrawerOptions): Drawer {
+  const place = (orientation = IDENTITY) => {
+    pose.place(orientation);
+    placed();
+  };
+  const handle = node("button", { class: "handle", type: "button", "aria-label": "Open look controls" });
+  const close = button("Close", () => setOpen(false));
+  const finishes = FINISHES.map(([name, finish]) => ({
+    finish,
+    element: button(name, () => look.set(finish)),
+  }));
+  const bound: Bound[] = [];
+  const sections = SECTIONS.map(({ title, controls }) => {
+    const colors = controls.filter((c) => c.kind === "color").map((c) => bind(c, look));
+    const rest = controls.filter((c) => c.kind !== "color").map((c) => bind(c, look));
+    bound.push(...colors, ...rest);
+    const swatches = colors.length
+      ? [node("div", { class: "swatches" }, ...colors.map((c) => c.element))]
+      : [];
+    return node("section", {}, node("h3", {}, title), ...swatches, ...rest.map((c) => c.element));
+  });
+
+  let transparent = false;
+  const clear = button(
+    "Transparent",
+    () => {
+      transparent = !transparent;
+      clear.setAttribute("aria-pressed", `${transparent}`);
+    },
+    "quiet toggle",
+  );
+  clear.setAttribute("aria-pressed", "false");
+  const save = button("Save PNG", async () => download(await capture(transparent), "crafter-knot.png"));
 
   const json = node("textarea", {
     class: "json",
     spellcheck: "false",
     "aria-label": "State as JSON",
-    rows: "13",
+    rows: "14",
   });
-  const copy = node("button", { type: "button" }, "Copy JSON");
-  const reset = node("button", { type: "button", class: "quiet" }, "Reset");
   let copying = 0;
-
-  sheet.append(
-    group("Material", MATERIAL, node("div", { class: "swatches" }, ...swatches.map((s) => s.element))),
-    group("Light", LIGHT),
-    group("Shape", SHAPE),
-    node("div", { class: "actions" }, front),
-    node("section", {}, node("h3", {}, "State"), json, node("div", { class: "actions" }, copy, reset)),
-  );
-  document.body.append(handle, sheet);
-
-  const text = () => pretty(snapshot(look.get(), pose.orientation));
-
-  const refresh = () => {
-    const current = look.get();
-    finishes.forEach(({ button, finish }) =>
-      button.setAttribute("aria-pressed", `${sameFinish(current, finish)}`),
-    );
-    swatches.forEach(({ key, input }) => (input.value = current[key]));
-    sliders.forEach(({ key, sync }) => sync(current[key] as number));
-    if (document.activeElement !== json) {
-      json.value = text();
-      json.removeAttribute("data-invalid");
-    }
-  };
-
-  json.addEventListener("input", () => {
-    try {
-      const parsed: unknown = JSON.parse(json.value);
-      json.removeAttribute("data-invalid");
-      look.set(readLook(parsed, look.get()));
-      const orientation = readOrientation(parsed);
-      if (orientation) {
-        pose.place(orientation);
-        placed();
-      }
-    } catch {
-      json.setAttribute("data-invalid", "");
-    }
-  });
-  json.addEventListener("blur", refresh);
-
-  copy.addEventListener("click", async () => {
+  const copy = button("Copy JSON", async () => {
     const value = text();
     try {
       await navigator.clipboard.writeText(value);
@@ -153,12 +160,61 @@ export function createDrawer(look: Store<Look>, pose: Pose, placed: () => void):
     clearTimeout(copying);
     copying = window.setTimeout(() => (copy.textContent = "Copy JSON"), COPIED);
   });
+  const reset = button(
+    "Reset",
+    () => {
+      look.set(DEFAULT_LOOK);
+      place();
+    },
+    "quiet",
+  );
 
-  reset.addEventListener("click", () => {
-    look.set(DEFAULT_LOOK);
-    pose.place(IDENTITY);
-    placed();
+  const sheet = node(
+    "aside",
+    { class: "sheet", "aria-label": "Look controls" },
+    node("div", { class: "top" }, node("span", { class: "title" }, "Look"), close),
+    node(
+      "div",
+      { class: "finishes", role: "group", "aria-label": "Finish" },
+      ...finishes.map((f) => f.element),
+    ),
+    ...sections,
+    node(
+      "div",
+      { class: "actions" },
+      button("Face front", () => place(), "quiet"),
+    ),
+    node("section", {}, node("h3", {}, "Export"), node("div", { class: "actions" }, save, clear)),
+    node("section", {}, node("h3", {}, "State"), json, node("div", { class: "actions" }, copy, reset)),
+  );
+  document.body.append(handle, sheet);
+
+  const text = () => pretty(snapshot(look.get(), pose.orientation));
+
+  const refresh = () => {
+    const current = look.get();
+    finishes.forEach(({ finish, element }) =>
+      element.setAttribute("aria-pressed", `${sameFinish(current, finish)}`),
+    );
+    bound.forEach(({ sync }) => sync(current));
+    if (document.activeElement !== json) {
+      json.value = text();
+      json.removeAttribute("data-invalid");
+    }
+  };
+
+  json.addEventListener("input", () => {
+    try {
+      const parsed: unknown = JSON.parse(json.value);
+      json.removeAttribute("data-invalid");
+      look.set(readLook(parsed, look.get()));
+      const orientation = readOrientation(parsed);
+      if (orientation) place(orientation);
+    } catch {
+      json.setAttribute("data-invalid", "");
+    }
   });
+  json.addEventListener("blur", refresh);
 
   const setOpen = (open: boolean) => {
     sheet.toggleAttribute("data-open", open);
@@ -167,7 +223,6 @@ export function createDrawer(look: Store<Look>, pose: Pose, placed: () => void):
     if (open) refresh();
   };
   handle.addEventListener("click", () => setOpen(true));
-  close.addEventListener("click", () => setOpen(false));
   window.addEventListener("keydown", (event) => event.key === "Escape" && setOpen(false));
   look.subscribe(refresh);
   setOpen(false);

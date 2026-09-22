@@ -12,6 +12,17 @@ export function orthographic(halfWidth: number, halfHeight: number, near: number
   return m;
 }
 
+export function perspective(fov: number, aspect: number, near: number, far: number): Mat4 {
+  const m = new Float32Array(16);
+  const f = 1 / Math.tan(fov / 2);
+  m[0] = f / aspect;
+  m[5] = f;
+  m[10] = far / (near - far);
+  m[11] = -1;
+  m[14] = (near * far) / (near - far);
+  return m;
+}
+
 export function rotation([x, y, z, w]: Quat): Mat4 {
   const m = new Float32Array(16);
   m[0] = 1 - 2 * (y * y + z * z);

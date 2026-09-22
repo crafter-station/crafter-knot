@@ -1,8 +1,19 @@
 :root {
-  color-scheme: light;
-  --paper: #ffffff;
-  --ink: #111111;
-  --quiet: rgba(17, 17, 17, 0.38);
+  --fg: #111111;
+  --muted: rgba(17, 17, 17, 0.5);
+  --line: rgba(17, 17, 17, 0.1);
+  --line-strong: rgba(17, 17, 17, 0.24);
+  --glass: rgba(255, 255, 255, 0.7);
+  --press: rgba(17, 17, 17, 0.06);
+}
+
+:root[data-tone="dark"] {
+  --fg: #f1f1f1;
+  --muted: rgba(241, 241, 241, 0.5);
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.26);
+  --glass: rgba(20, 20, 22, 0.62);
+  --press: rgba(255, 255, 255, 0.1);
 }
 
 * {
@@ -13,7 +24,7 @@
 html,
 body {
   height: 100%;
-  background: var(--paper);
+  background: #ffffff;
   overflow: hidden;
   overscroll-behavior: none;
 }
@@ -46,7 +57,7 @@ body {
     sans-serif;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--quiet);
+  color: var(--muted);
   pointer-events: none;
   transition: opacity 600ms ease;
 }
@@ -60,6 +71,6 @@ body {
   left: 50%;
   top: 50%;
   translate: -50% -50%;
-  fill: var(--ink);
+  fill: var(--fg);
   pointer-events: none;
 }

@@ -27,7 +27,7 @@ function probes(paths: readonly (readonly Ring[])[]): Probe[] {
 
 export function occlusion(paths: readonly (readonly Ring[])[], surfaces: readonly Surface[]): number[][] {
   const all = probes(paths);
-  return surfaces.map(({ rings, sides, positions, normals }, strand) => {
+  return surfaces.map(({ rings, owners, positions, normals }, strand) => {
     const nearby = rings.map(({ centre: [cx, cy, cz], radius }) =>
       all.filter((p) => {
         const d = Math.hypot(p.x - cx, p.y - cy, p.z - cz);
@@ -37,7 +37,7 @@ export function occlusion(paths: readonly (readonly Ring[])[], surfaces: readonl
     return positions.map(([px, py, pz], v) => {
       const [nx, ny, nz] = normals[v];
       let sum = 0;
-      for (const p of nearby[Math.floor(v / sides)]) {
+      for (const p of nearby[owners[v]]) {
         const x = p.x - px;
         const y = p.y - py;
         const z = p.z - pz;
