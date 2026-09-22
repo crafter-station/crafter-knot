@@ -14,10 +14,10 @@ interface Probe {
   readonly weight: number;
 }
 
-function probes(strands: readonly (readonly Ring[])[], closed: readonly boolean[]): Probe[] {
-  return strands.flatMap((rings, strand) =>
+function probes(paths: readonly (readonly Ring[])[]): Probe[] {
+  return paths.flatMap((rings, strand) =>
     rings.map((ring, i) => {
-      const neighbour = i + 1 < rings.length ? rings[i + 1] : closed[strand] ? rings[0] : rings[i - 1];
+      const neighbour = rings[i + 1] ?? rings[i - 1];
       const [x, y, z] = ring.centre;
       const weight = vec3.distance(ring.centre, neighbour.centre) / (2 * ring.radius);
       return { x, y, z, radius: ring.radius, strand, weight };
@@ -25,12 +25,8 @@ function probes(strands: readonly (readonly Ring[])[], closed: readonly boolean[
   );
 }
 
-export function occlusion(
-  strands: readonly (readonly Ring[])[],
-  closed: readonly boolean[],
-  surfaces: readonly Surface[],
-): number[][] {
-  const all = probes(strands, closed);
+export function occlusion(paths: readonly (readonly Ring[])[], surfaces: readonly Surface[]): number[][] {
+  const all = probes(paths);
   return surfaces.map(({ rings, sides, positions, normals }, strand) => {
     const nearby = rings.map(({ centre: [cx, cy, cz], radius }) =>
       all.filter((p) => {

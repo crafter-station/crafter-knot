@@ -18,13 +18,6 @@ const turn = params
   ?.split(",")
   .map((degrees) => (Number(degrees) * Math.PI) / 180);
 const pose = createPose(turn && fromEuler(turn[1] ?? 0, turn[0] ?? 0, 0));
-const poster = createPoster(fitted);
-
-const fit = () => poster.fit(canvas.clientWidth, canvas.clientHeight);
-fit();
-window.addEventListener("resize", fit);
-document.body.append(poster.element);
-
 const renderer = createRenderer(canvas, buildKnot(), pose, { layout: fitted });
 
 attachPointer(canvas, pose, () => {
@@ -34,7 +27,6 @@ attachPointer(canvas, pose, () => {
 
 renderer.ready
   .then(() => {
-    poster.element.dataset.hidden = "";
     if (params.has("still") || turn) return;
     setTimeout(() => {
       pose.nudge();
@@ -42,6 +34,11 @@ renderer.ready
     }, INTRO);
   })
   .catch((error: unknown) => {
+    const poster = createPoster(fitted);
+    const fit = () => poster.fit(canvas.clientWidth, canvas.clientHeight);
+    fit();
+    window.addEventListener("resize", fit);
+    document.body.append(poster.element);
     hint.textContent = "Turning it needs WebGPU";
     console.error(error);
   });

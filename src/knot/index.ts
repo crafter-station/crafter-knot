@@ -1,52 +1,35 @@
-import { BRIDGE, GAPS, LOOP } from "./strands";
-import { domain, type Spline } from "./spline";
 import { occlusion } from "./occlusion";
+import { domain } from "./spline";
+import { BRIDGE, LOOP, PIECES } from "./strands";
 import { surface, sweep } from "./tube";
 
 const SPACING = 0.012;
 const SIDES = 64;
 
-const STRANDS: readonly Spline[] = [LOOP, BRIDGE];
-
-export interface Gap {
-  readonly from: number;
-  readonly to: number;
-  readonly period: number;
-}
-
 export interface KnotMesh {
   readonly positions: Float32Array<ArrayBuffer>;
   readonly normals: Float32Array<ArrayBuffer>;
-  readonly tracks: Float32Array<ArrayBuffer>;
+  readonly occlusion: Float32Array<ArrayBuffer>;
   readonly indices: Uint32Array<ArrayBuffer>;
 }
 
-export const gaps: readonly Gap[] = GAPS.map(([from, to]) => ({ from, to, period: domain(LOOP) }));
-
-export function healed(gap: Gap, amount: number): Gap {
-  const middle = (gap.from + gap.to) / 2;
-  return { ...gap, from: gap.from + (middle - gap.from) * amount, to: gap.to - (gap.to - middle) * amount };
-}
-
 export function buildKnot(): KnotMesh {
-  const strands = STRANDS.map((spline) => sweep(spline, SPACING));
-  const surfaces = strands.map((strand) => surface(strand, SIDES));
-  const shade = occlusion(
-    strands.map((strand) => strand.rings),
-    STRANDS.map((spline) => spline.closed),
-    surfaces,
-  );
-  const flatten = (values: readonly (readonly number[])[]) => new Float32Array(values.flat());
+  const paths = [
+    ...PIECES.map((span) => sweep(LOOP, span, SPACING)),
+    sweep(BRIDGE, [0, domain(BRIDGE)], SPACING),
+  ];
+  const surfaces = paths.map((path) => surface(path, SIDES));
+  const shade = occlusion(paths, surfaces);
   let offset = 0;
-  const indices = surfaces.flatMap((s) => {
-    const shifted = s.indices.map((i) => i + offset);
-    offset += s.positions.length;
+  const indices = surfaces.flatMap(({ indices, positions }) => {
+    const shifted = indices.map((i) => i + offset);
+    offset += positions.length;
     return shifted;
   });
   return {
-    positions: flatten(surfaces.flatMap((s) => s.positions)),
-    normals: flatten(surfaces.flatMap((s) => s.normals)),
-    tracks: flatten(surfaces.flatMap((s, strand) => s.params.map((u, v) => [strand, u, shade[strand][v]]))),
+    positions: new Float32Array(surfaces.flatMap((s) => s.positions.flat())),
+    normals: new Float32Array(surfaces.flatMap((s) => s.normals.flat())),
+    occlusion: new Float32Array(shade.flat()),
     indices: new Uint32Array(indices),
   };
 }

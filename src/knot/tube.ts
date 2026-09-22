@@ -5,19 +5,15 @@ import { derivative, domain, evaluate, type Spline } from "./spline";
 const DENSE = 64;
 const CAP_RINGS = 12;
 
+export type Span = readonly [from: number, to: number];
+
 export interface Ring {
   readonly centre: Vec3;
   readonly tangent: Vec3;
   readonly normal: Vec3;
   readonly binormal: Vec3;
   readonly radius: number;
-  readonly slope: number;
-  readonly u: number;
-}
-
-export interface Strand {
-  readonly spline: Spline;
-  readonly rings: readonly Ring[];
+  readonly lean: number;
 }
 
 export interface Surface {
@@ -25,30 +21,31 @@ export interface Surface {
   readonly sides: number;
   readonly positions: Vec3[];
   readonly normals: Vec3[];
-  readonly params: number[];
   readonly indices: number[];
 }
 
 const xyz = ([x, y, z]: readonly number[]): Vec3 => [x, y, z];
 
-function stations(spline: Spline, spacing: number): number[] {
-  const span = domain(spline);
-  const steps = span * DENSE;
+function stations(spline: Spline, [from, to]: Span, spacing: number): number[] {
+  const period = domain(spline);
+  const at = (t: number) => from + (to - from) * t;
+  const place = (u: number) => xyz(evaluate(spline, spline.closed ? u % period : u));
+  const steps = Math.ceil((to - from) * DENSE);
   const lengths = [0];
-  let previous = xyz(evaluate(spline, 0));
+  let previous = place(from);
   for (let i = 1; i <= steps; i++) {
-    const next = xyz(evaluate(spline, (i / steps) * span));
+    const next = place(at(i / steps));
     lengths.push(lengths[i - 1] + vec3.distance(previous, next));
     previous = next;
   }
-  const total = lengths[steps];
-  const count = Math.max(2, Math.round(total / spacing));
+  const count = Math.max(2, Math.round(lengths[steps] / spacing));
   let k = 0;
-  return Array.from({ length: spline.closed ? count : count + 1 }, (_, i) => {
-    const target = (i / count) * total;
+  return Array.from({ length: count + 1 }, (_, i) => {
+    const target = (i / count) * lengths[steps];
     while (k < steps - 1 && lengths[k + 1] < target) k++;
     const t = (target - lengths[k]) / (lengths[k + 1] - lengths[k] || 1);
-    return ((k + t) / steps) * span;
+    const u = at((k + t) / steps);
+    return spline.closed ? u % period : u;
   });
 }
 
@@ -60,50 +57,33 @@ function perpendicular(tangent: Vec3): Vec3 {
 const reflect = (v: Vec3, axis: Vec3, c: number): Vec3 =>
   vec3.sub(v, vec3.scale(axis, (2 / c) * vec3.dot(axis, v)));
 
-function rotateAbout(v: Vec3, axis: Vec3, angle: number): Vec3 {
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  return vec3.add(
-    vec3.add(vec3.scale(v, cos), vec3.scale(vec3.cross(axis, v), sin)),
-    vec3.scale(axis, vec3.dot(axis, v) * (1 - cos)),
-  );
-}
-
-export function sweep(spline: Spline, spacing: number): Strand {
-  const frames = stations(spline, spacing).map((u) => {
+export function sweep(spline: Spline, span: Span, spacing: number): Ring[] {
+  const frames = stations(spline, span, spacing).map((u) => {
     const point = evaluate(spline, u);
     const velocity = derivative(spline, u);
     const speed = vec3.length(xyz(velocity));
     return {
-      u,
       centre: xyz(point),
       tangent: vec3.scale(xyz(velocity), 1 / speed),
       radius: point[3],
-      slope: velocity[3] / speed,
+      lean: Math.atan(velocity[3] / speed),
     };
   });
   const normals: Vec3[] = [perpendicular(frames[0].tangent)];
-  for (let i = 0; i + 1 < frames.length + (spline.closed ? 1 : 0); i++) {
-    const [a, b] = [frames[i], frames[(i + 1) % frames.length]];
+  for (let i = 0; i + 1 < frames.length; i++) {
+    const [a, b] = [frames[i], frames[i + 1]];
     const step = vec3.sub(b.centre, a.centre);
     const c1 = vec3.dot(step, step);
     const r = reflect(normals[i], step, c1);
-    const t = reflect(a.tangent, step, c1);
-    const bend = vec3.sub(b.tangent, t);
+    const bend = vec3.sub(b.tangent, reflect(a.tangent, step, c1));
     const c2 = vec3.dot(bend, bend);
     normals.push(c2 > 1e-12 ? reflect(r, bend, c2) : r);
   }
-  if (spline.closed) {
-    const [start, end] = [normals[0], normals.pop()!];
-    const twist = Math.atan2(vec3.dot(vec3.cross(end, start), frames[0].tangent), vec3.dot(end, start));
-    normals.forEach((n, i) => (normals[i] = rotateAbout(n, frames[i].tangent, (twist * i) / frames.length)));
-  }
-  const rings = frames.map((frame, i) => ({
+  return frames.map((frame, i) => ({
     ...frame,
     normal: normals[i],
     binormal: vec3.cross(frame.tangent, normals[i]),
   }));
-  return { spline, rings };
 }
 
 function capped(rings: readonly Ring[]): Ring[] {
@@ -114,19 +94,18 @@ function capped(rings: readonly Ring[]): Ring[] {
         ...ring,
         centre: vec3.add(ring.centre, vec3.scale(ring.tangent, outward * ring.radius * Math.sin(angle))),
         radius: ring.radius * Math.cos(angle),
-        slope: -outward * Math.tan(Math.min(angle, 1.5)),
+        lean: -outward * angle,
       };
     });
   return [...dome(rings[0], -1).reverse(), ...rings, ...dome(rings[rings.length - 1], 1)];
 }
 
-export function surface({ spline, rings: path }: Strand, sides: number): Surface {
-  const rings = spline.closed ? path : capped(path);
+export function surface(path: readonly Ring[], sides: number): Surface {
+  const rings = capped(path);
   const positions: Vec3[] = [];
   const normals: Vec3[] = [];
-  const params: number[] = [];
   const indices: number[] = [];
-  rings.forEach((ring) => {
+  rings.forEach((ring, i) => {
     for (let j = 0; j < sides; j++) {
       const angle = (j / sides) * Math.PI * 2;
       const outward = vec3.add(
@@ -134,18 +113,14 @@ export function surface({ spline, rings: path }: Strand, sides: number): Surface
         vec3.scale(ring.binormal, Math.sin(angle)),
       );
       positions.push(vec3.add(ring.centre, vec3.scale(outward, ring.radius)));
-      normals.push(vec3.normalize(vec3.sub(outward, vec3.scale(ring.tangent, ring.slope))));
-      params.push(ring.u);
+      normals.push(
+        vec3.sub(vec3.scale(outward, Math.cos(ring.lean)), vec3.scale(ring.tangent, Math.sin(ring.lean))),
+      );
+      if (i + 1 < rings.length) {
+        const [a, b, k] = [i * sides, (i + 1) * sides, (j + 1) % sides];
+        indices.push(a + j, a + k, b + j, b + j, a + k, b + k);
+      }
     }
   });
-  const count = rings.length;
-  for (let i = 0; i < (spline.closed ? count : count - 1); i++) {
-    const a = i * sides;
-    const b = ((i + 1) % count) * sides;
-    for (let j = 0; j < sides; j++) {
-      const k = (j + 1) % sides;
-      indices.push(a + j, a + k, b + j, b + j, a + k, b + k);
-    }
-  }
-  return { rings, sides, positions, normals, params, indices };
+  return { rings, sides, positions, normals, indices };
 }

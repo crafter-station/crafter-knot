@@ -4,7 +4,6 @@ const KNEE = 0.7;
 
 struct Present {
   background: vec3f,
-  grain: f32,
 }
 
 @group(0) @binding(0) var scene: texture_2d<f32>;
@@ -21,5 +20,5 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let knot = linearToSrgb3(shoulder(texel.rgb / max(texel.a, 1e-5)));
   let color = mix(linearToSrgb3(present.background), knot, texel.a);
   let noise = fract(sin(dot(position.xy, vec2f(12.9898, 78.233))) * 43758.5453) - 0.5;
-  return vec4f(color + noise * present.grain / 255.0, 1.0);
+  return vec4f(color + noise / 255.0, 1.0);
 }

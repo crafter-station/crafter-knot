@@ -63,7 +63,3 @@ body {
   fill: var(--ink);
   pointer-events: none;
 }
-
-.poster[data-hidden] {
-  visibility: hidden;
-}

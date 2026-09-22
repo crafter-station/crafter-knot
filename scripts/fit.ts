@@ -44,8 +44,6 @@ const ITERATIONS = 120;
 const BEND = 0.4;
 const SWELL = 4;
 const ANCHOR = 400;
-const LIFT = 1.3;
-const MARGIN = 2;
 
 const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
 
@@ -257,48 +255,7 @@ function thickness(plan: Plan, points: readonly P[], edges: readonly Sample[]): 
   return leastSquares(points.length, plan.closed, rows, SWELL)[0];
 }
 
-function crossings(a: Spline, b: Spline): { ua: number; ub: number }[] {
-  const ta = table(a);
-  const tb = table(b);
-  const hits: { ua: number; ub: number }[] = [];
-  ta.forEach((p0, i) => {
-    const p1 = ta[(i + 1) % ta.length];
-    const r = sub(p1.p, p0.p);
-    for (let j = 0; j + 1 < tb.length; j++) {
-      const s = sub(tb[j + 1].p, tb[j].p);
-      const denominator = cross(r, s);
-      if (Math.abs(denominator) < 1e-12) continue;
-      const offset = sub(tb[j].p, p0.p);
-      const t = cross(offset, s) / denominator;
-      const v = cross(offset, r) / denominator;
-      if (t >= 0 && t < 1 && v >= 0 && v < 1)
-        hits.push({ ua: p0.u + t / DENSITY, ub: tb[j].u + v / DENSITY });
-    }
-  });
-  return hits;
-}
-
-function weave(spline: Spline, keys: readonly (readonly [number, number])[], height: number): Spline {
-  const span = domain(spline);
-  const sorted = [...keys].sort((a, b) => a[0] - b[0]);
-  const ring = spline.closed ? [...sorted, [sorted[0][0] + span, sorted[0][1]] as const] : sorted;
-  const depth = (u: number) => {
-    const at = spline.closed && u < ring[0][0] ? u + span : u;
-    const k = Math.min(ring.length - 2, Math.max(0, ring.findIndex((key) => key[0] > at) - 1));
-    const [[u0, z0], [u1, z1]] = [ring[k], ring[k + 1]];
-    const t = Math.min(1, Math.max(0, (at - u0) / (u1 - u0 || 1)));
-    return height * (z0 + ((z1 - z0) * (1 - Math.cos(Math.PI * t))) / 2);
-  };
-  const count = spline.knots.length;
-  const rows = Array.from({ length: span * DENSITY + 1 }, (_, i): Row => {
-    const u = i / DENSITY;
-    return { terms: weights(count, spline.closed, u), target: [depth(u)], weight: 1 };
-  });
-  const [zs] = leastSquares(count, spline.closed, rows, 0);
-  return { closed: spline.closed, knots: spline.knots.map(([x, y, , r], i): Knot => [x, y, zs[i], r]) };
-}
-
-function hidden(
+function pieces(
   loop: Spline,
   edges: readonly Sample[],
   caps: readonly (readonly Sample[])[],
@@ -310,7 +267,7 @@ function hidden(
     (u, i) => [u, i + 1 < covered.length ? covered[i + 1] : covered[0] + period] as const,
   );
   const gaps = [...spans].sort((a, b) => b[1] - b[0] - (a[1] - a[0])).slice(0, 2);
-  return gaps.map(([from, to]) => {
+  const hidden = gaps.map(([from, to]) => {
     const relative = (u: number) => {
       const r = (((u - from) % period) + period) % period;
       return r > period / 2 ? r - period : r;
@@ -322,13 +279,17 @@ function hidden(
     const back = (u: number) => {
       const [, , , radius] = evaluate(loop, u);
       const [dx, dy] = derivative(loop, u);
-      return (MARGIN * radius) / Math.hypot(dx, dy);
+      return radius / Math.hypot(dx, dy);
     };
     const low = from + Math.max(...closest(0));
     const high = from + Math.min(...closest(to - from));
-    const start = low - back(low);
-    const wrapped = ((start % period) + period) % period;
-    return [wrapped, wrapped + high + back(high) - start];
+    return [low - back(low), high + back(high)] as const;
+  });
+  const wrap = (u: number) => ((u % period) + period) % period;
+  return hidden.map(([, end], i) => {
+    const start = wrap(end);
+    const next = wrap(hidden[(i + 1) % hidden.length][0]);
+    return [start, next > start ? next : next + period];
   });
 }
 
@@ -343,25 +304,6 @@ function report(name: string, spline: Spline, edges: readonly Sample[]) {
   const rms = Math.sqrt(errors.reduce((sum, e) => sum + e * e, 0) / errors.length);
   const at = (q: number) => errors[Math.floor(q * (errors.length - 1))].toFixed(3);
   console.log(`${name} edge rms ${rms.toFixed(3)} p99 ${at(0.99)} max ${at(1)}`);
-}
-
-function clearance(a: Spline, b: Spline, around: readonly number[]): number {
-  const points = (s: Spline, keep: (u: number) => boolean) =>
-    Array.from({ length: domain(s) * 12 + 1 }, (_, i) => i / 12)
-      .filter(keep)
-      .map((u) => evaluate(s, u));
-  const pb = points(b, () => true);
-  return Math.min(
-    ...points(a, (u) => around.some((c) => Math.abs(u - c) < 1.5)).map((p) =>
-      Math.min(...pb.map((q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) - p[3] - q[3])),
-    ),
-  );
-}
-
-function centred(splines: readonly Spline[]): Spline[] {
-  const depths = splines.flatMap((s) => s.knots.map((k) => k[2]));
-  const middle = (Math.min(...depths) + Math.max(...depths)) / 2;
-  return splines.map((s) => ({ ...s, knots: s.knots.map(([x, y, z, r]): Knot => [x, y, z - middle, r]) }));
 }
 
 const segments = parse(await Bun.file(MARK).text());
@@ -396,25 +338,10 @@ for (const plan of PLANS) {
 }
 
 const loop = strands.get("LOOP")!;
-const bridge = strands.get("BRIDGE")!;
-const ends = [0, domain(bridge)];
-const overpasses = crossings(loop, bridge).filter(({ ub }) => ends.every((e) => Math.abs(ub - e) > 1));
-const under = overpasses.map(({ ua }) => ua);
-const junctions = ends.map((e) => foot(table(loop), flat(evaluate(bridge, e))).u);
-const level = (z: number) => (u: number) => [u, z] as const;
-const woven = centred([
-  weave(loop, [...junctions.map(level(1)), ...under.map(level(-1))], rough * LIFT),
-  weave(bridge, ends.map(level(1)), rough * LIFT),
-]);
-const gap = clearance(woven[0], woven[1], under) / rough;
-console.log(
-  `overpasses ${under.length} junctions ${junctions.map((u) => u.toFixed(2))} gap ${gap.toFixed(3)}r`,
-);
-
 const loopEdges = samples.filter((s) => PLANS[0].sides.includes(s.segment) && clean(s));
 const capEdges = CAPS.map((cap) => samples.filter((s) => cap.includes(s.segment)));
-const gaps = hidden(woven[0], loopEdges, capEdges);
-console.log(`gaps ${gaps.map((g) => g.map((u) => u.toFixed(2)).join("-")).join(" ")}`);
+const visible = pieces(loop, loopEdges, capEdges);
+console.log(`pieces ${visible.map((g) => g.map((u) => u.toFixed(2)).join("-")).join(" ")}`);
 
 const xs = samples.map((s) => s.point[0]);
 const ys = samples.map((s) => s.point[1]);
@@ -429,9 +356,9 @@ await Bun.write(
   OUTPUT,
   [
     `import type { Spline } from "./spline";`,
-    ...PLANS.map((plan, i) => `export const ${plan.name}: Spline = ${literal(woven[i])};`),
+    ...PLANS.map((plan) => `export const ${plan.name}: Spline = ${literal(strands.get(plan.name)!)};`),
     `export const MARK = { centre: ${tuple(centre)}, unit: ${Number(unit.toFixed(5))} } as const;`,
-    `export const GAPS: readonly (readonly [number, number])[] = [${gaps.map(tuple).join(", ")}];`,
+    `export const PIECES: readonly (readonly [number, number])[] = [${visible.map(tuple).join(", ")}];`,
   ].join("\n\n") + "\n",
 );
 console.log(`centre ${tuple(centre)} unit ${unit.toFixed(2)} half width ${rough.toFixed(2)}`);
