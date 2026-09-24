@@ -9,6 +9,7 @@ into tubes you can shape, texture, finish and light from a drawer, then export a
 | Input                     | Does                                    |
 | ------------------------- | --------------------------------------- |
 | Drag, mouse or one finger | Turn it                                 |
+| Two fingers               | Pinch to zoom, move to turn             |
 | Scroll, trackpad pinch    | Zoom                                    |
 | Handle on the right edge  | Opens the look drawer                   |
 | `?turn=yaw,pitch`         | Starts at a pose in degrees, for stills |
