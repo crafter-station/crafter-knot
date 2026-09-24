@@ -35,14 +35,12 @@ Chrome on Android. Without it the page shows the mark as an SVG and says so.
   and surface coordinates for the patterns.
 - `src/render/` draws the tubes into an MSAA HDR target, adds bloom, and presents through the
   F-6800 film LUT with dithering. Everything is a vgpu `draw()` or `effect()` in one `frame()`.
-- Two lights: the black studio from [v-prism](https://github.com/crafter-station/v-prism), an
-  analytic dome with three panels, and the Spruit Sunrise UltraHDR panorama from the three.js
-  examples, decoded and prefiltered on the GPU the first time it is chosen.
+- Two lights: an analytic black studio, a dome with three soft panels, and the Spruit Sunrise
+  UltraHDR panorama from the three.js examples, decoded and prefiltered on the GPU the first time
+  it is chosen.
 
 ## Credits
 
-The studio, film grade and page chrome come from
-[v-prism](https://github.com/crafter-station/v-prism); the LUT is from the pmndrs
-[`nextjs-prism`](https://github.com/pmndrs/examples/tree/main/examples/nextjs-prism) example
-(MIT). The sunrise is [Spruit Sunrise](https://polyhaven.com/a/spruit_sunrise) from Poly Haven
-(CC0), in the UltraHDR conversion shipped with the three.js examples.
+The film LUT is from the [pmndrs examples](https://github.com/pmndrs/examples) (MIT). The sunrise
+is [Spruit Sunrise](https://polyhaven.com/a/spruit_sunrise) from Poly Haven (CC0), in the UltraHDR
+conversion shipped with the three.js examples.
