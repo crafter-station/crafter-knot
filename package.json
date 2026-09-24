@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "fit": "bun scripts/fit.ts && prettier --write src/knot/strands.ts",
+    "og": "magick .github/hero.jpg -crop 1600x840+0+176 +repage -filter Lanczos -resize 1200x630 -strip -interlace JPEG -quality 88 public/og.jpg",
     "format": "prettier --write ."
   },
   "dependencies": {
