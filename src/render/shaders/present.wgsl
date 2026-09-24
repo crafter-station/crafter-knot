@@ -13,6 +13,7 @@ struct Present {
   blur: f32,
   turn: f32,
   exposure: f32,
+  lutSize: f32,
 }
 
 @group(0) @binding(0) var scene: texture_2d<f32>;
@@ -21,10 +22,17 @@ struct Present {
 @group(0) @binding(3) var<uniform> present: Present;
 @group(0) @binding(4) var sky: texture_2d<f32>;
 @group(0) @binding(5) var skySampler: sampler;
+@group(0) @binding(6) var lut: texture_3d<f32>;
+@group(0) @binding(7) var lutSampler: sampler;
 
 fn shoulder(color: vec3f) -> vec3f {
   let over = max(color - KNEE, vec3f(0.0));
   return min(color, vec3f(KNEE)) + (1.0 - KNEE) * (1.0 - exp(-over / (1.0 - KNEE)));
+}
+
+fn film(display: vec3f) -> vec3f {
+  let cell = display * (present.lutSize - 1.0) / present.lutSize + 0.5 / present.lutSize;
+  return textureSampleLevel(lut, lutSampler, cell, 0.0).rgb;
 }
 
 fn backdrop(position: vec2f, size: vec2f) -> vec3f {
@@ -47,10 +55,11 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let glow = min(textureSampleLevel(halo, haloSampler, position.xy / size, 0.0).rgb * present.bloom, vec3f(1.0));
   if (present.transparent > 0.5) {
     let spill = max(glow.r, max(glow.g, glow.b)) * (1.0 - texel.a);
-    return vec4f(knot * texel.a + linearToSrgb3(glow) * (1.0 - texel.a), texel.a + spill);
+    let graded = film(linearToSrgb3(min(srgbToLinear3(knot) + glow, vec3f(1.0))));
+    return vec4f(graded * texel.a + film(linearToSrgb3(glow)) * (1.0 - texel.a), texel.a + spill);
   }
   let base = mix(backdrop(position.xy, size), knot, texel.a);
-  let color = linearToSrgb3(min(srgbToLinear3(base) + glow, vec3f(1.0))) * shade;
+  let color = film(linearToSrgb3(min(srgbToLinear3(base) + glow, vec3f(1.0)))) * shade;
   let noise = fract(sin(dot(position.xy, vec2f(12.9898, 78.233))) * 43758.5453) - 0.5;
   return vec4f(color + noise / 255.0, 1.0);
 }

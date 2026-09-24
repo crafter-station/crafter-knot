@@ -1,19 +1,13 @@
 :root {
-  --fg: #111111;
-  --muted: rgba(17, 17, 17, 0.5);
-  --line: rgba(17, 17, 17, 0.1);
-  --line-strong: rgba(17, 17, 17, 0.24);
-  --glass: rgba(255, 255, 255, 0.7);
-  --press: rgba(17, 17, 17, 0.06);
-}
-
-:root[data-tone="dark"] {
-  --fg: #f1f1f1;
-  --muted: rgba(241, 241, 241, 0.5);
-  --line: rgba(255, 255, 255, 0.1);
-  --line-strong: rgba(255, 255, 255, 0.26);
-  --glass: rgba(20, 20, 22, 0.62);
+  --bg: #000;
+  --fg: #ededed;
+  --muted: #8a8a8a;
+  --line: rgba(255, 255, 255, 0.12);
+  --line-strong: rgba(255, 255, 255, 0.28);
+  --glass: rgba(12, 12, 12, 0.72);
   --press: rgba(255, 255, 255, 0.1);
+  --font: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark;
 }
 
 * {
@@ -24,7 +18,10 @@
 html,
 body {
   height: 100%;
-  background: #ffffff;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
   overflow: hidden;
   overscroll-behavior: none;
 }
@@ -37,33 +34,41 @@ body {
   display: block;
   cursor: grab;
   touch-action: none;
+  opacity: 0;
+  animation: reveal 3s ease 1s forwards;
 }
 
 #stage:active {
   cursor: grabbing;
 }
 
-.hint {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: max(28px, env(safe-area-inset-bottom));
-  text-align: center;
-  font:
-    500 12px/1 ui-sans-serif,
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  pointer-events: none;
-  transition: opacity 600ms ease;
+@keyframes reveal {
+  to {
+    opacity: 1;
+  }
 }
 
-.hint[data-hidden] {
+.hint {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  z-index: 20;
+  transform: translate(-50%, 4px);
+  color: var(--fg);
+  mix-blend-mode: difference;
+  font: 12px/1 var(--font);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
   opacity: 0;
+  transition:
+    opacity 0.6s ease,
+    transform 0.6s ease;
+}
+
+.hint[data-visible] {
+  opacity: 0.6;
+  transform: translate(-50%, 0);
 }
 
 .poster {
@@ -72,5 +77,19 @@ body {
   top: 50%;
   translate: -50% -50%;
   fill: var(--fg);
+  mix-blend-mode: difference;
   pointer-events: none;
+  animation: reveal 1.2s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #stage {
+    animation-duration: 0.8s;
+    animation-delay: 0s;
+  }
+
+  .hint {
+    transition: opacity 0.6s ease;
+    transform: translate(-50%, 0);
+  }
 }

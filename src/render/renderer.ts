@@ -12,21 +12,25 @@ import {
   type Surface,
   type Target,
 } from "vgpu";
+import filmLut from "../assets/F-6800-STD.ktx2?url";
 import sunrise from "../assets/spruit-sunrise.hdr.jpg";
 import type { Pose } from "../interaction/pose";
 import type { KnotMesh } from "../knot";
 import type { Layout } from "../layout";
 import { rotation } from "../math/mat4";
-import { linear, PATTERNS, type Look } from "../state/look";
+import { linear, luminance, PATTERNS, type Look } from "../state/look";
 import type { Store } from "../state/store";
 import { createBloom, type Bloom } from "./bloom";
 import { createCamera } from "./camera";
+import { loadLut, type Lut } from "./lut";
 import knotWgsl from "./shaders/knot.wgsl";
 import presentWgsl from "./shaders/present.wgsl";
 import { emptySky, loadSky, skySampler, type Sky } from "./sky";
 
 const TAU = Math.PI * 2;
 const BACKDROP_FOV = 50;
+const DARK_BELOW = 0.15;
+const LIGHT_ABOVE = 0.5;
 
 type Outdoors = Exclude<Look["environment"], "studio">;
 
@@ -60,6 +64,7 @@ interface Stage {
   readonly bloom: Bloom;
   readonly present: Effect;
   readonly sampler: GPUSampler;
+  readonly lut: Lut;
   tube: Tube;
   sky: Sky;
   outdoors?: Outdoors;
@@ -148,12 +153,14 @@ export function createRenderer(
       label: "present",
       set: { halo: bloom.result, haloSampler: bloom.sampler },
     });
-    await Promise.all([
+    const [lut] = await Promise.all([
+      loadLut(gpu, filmLut),
       tube.draw.compile(lit),
       bloom.compile(),
       present.compile({ colors: [output.format] }),
     ]);
     if (disposed) return;
+    present.set({ lut: lut.texture, lutSampler: bloom.sampler });
     const current: Stage = {
       gpu,
       output,
@@ -162,6 +169,7 @@ export function createRenderer(
       present,
       tube,
       sampler: skySampler(gpu),
+      lut,
       sky: emptySky(gpu),
     };
     await fetchSky(current);
@@ -214,11 +222,15 @@ export function createRenderer(
 }
 
 function render(stage: Stage, pose: Pose, options: Options, transparent: boolean): void {
-  const { gpu, output, lit, bloom, present, tube, sky, sampler } = stage;
+  const { gpu, output, lit, bloom, present, tube, sky, sampler, lut } = stage;
   const look = options.look.get();
   const background = linear(look.background);
   const outdoors = look.environment !== "studio" && look.environment === stage.outdoors;
   const turn = (look.light * Math.PI) / 180;
+  const light = Math.min(
+    1,
+    Math.max(0, (luminance(look.background) - DARK_BELOW) / (LIGHT_ABOVE - DARK_BELOW)),
+  );
   frame(gpu, (current) => {
     const [width, height] = output.size;
     if (lit.size[0] !== width || lit.size[1] !== height) {
@@ -251,6 +263,7 @@ function render(stage: Stage, pose: Pose, options: Options, transparent: boolean
         circumference: TAU * tube.radius * look.thickness,
         sky: outdoors ? 1 : 0,
         levels: sky.levels,
+        light,
       },
       specular: sky.specular,
       irradiance: sky.irradiance,
@@ -270,6 +283,7 @@ function render(stage: Stage, pose: Pose, options: Options, transparent: boolean
         blur: look.blur * look.blur * sky.levels,
         turn,
         exposure: look.exposure,
+        lutSize: lut.size,
       },
     });
     current.pass({ target: lit, clear: [0, 0, 0, 0] }, (pass) => pass.draw(tube.draw));

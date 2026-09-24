@@ -4,10 +4,11 @@ import { studio } from "./studio.wgsl";
 const TAU = 6.2831853;
 const DIELECTRIC = 0.045;
 const COAT = 0.04;
-const SHARP = 0.3;
+const SHARP = 0.45;
 const SOFT = 6.0;
 const DIFFUSE_BLUR = 2.4;
-const AMBIENT = 0.22;
+const AMBIENT_DARK = 0.05;
+const AMBIENT_LIGHT = 0.22;
 const DOT = 0.3;
 
 struct Knot {
@@ -32,6 +33,7 @@ struct Knot {
   circumference: f32,
   sky: f32,
   levels: f32,
+  light: f32,
 }
 
 @group(0) @binding(0) var<uniform> knot: Knot;
@@ -110,14 +112,15 @@ fn environment(direction: vec3f, roughness: f32) -> vec3f {
     return outdoors(specular, direction, roughness * knot.levels) * knot.rig.y;
   }
   let spread = roughness * roughness;
-  return studio(direction, SHARP + spread * SOFT, knot.backdrop, knot.rig) / (1.0 + spread * 4.0);
+  return studio(direction, SHARP + spread * SOFT, knot.backdrop, knot.rig, knot.light) / (1.0 + spread * 4.0);
 }
 
 fn ambient(normal: vec3f) -> vec3f {
   if (knot.sky > 0.5) {
     return outdoors(irradiance, normal, 0.0) * knot.rig.z;
   }
-  return studio(normal, DIFFUSE_BLUR, knot.backdrop, knot.rig) * 0.8 + AMBIENT * knot.rig.z;
+  let floor = mix(AMBIENT_DARK, AMBIENT_LIGHT, knot.light) * knot.rig.z;
+  return studio(normal, DIFFUSE_BLUR, knot.backdrop, knot.rig, knot.light) * 0.8 + floor;
 }
 
 @fragment

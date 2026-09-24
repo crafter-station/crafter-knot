@@ -2,6 +2,7 @@ import type { Pose } from "../interaction/pose";
 import { IDENTITY } from "../math/quat";
 import {
   DEFAULT_LOOK,
+  DEFAULT_POSE,
   FINISHES,
   readLook,
   sameFinish,
@@ -164,7 +165,7 @@ export function createDrawer({ look, pose, placed, capture }: DrawerOptions): Dr
     "Reset",
     () => {
       look.set(DEFAULT_LOOK);
-      place();
+      place(DEFAULT_POSE);
     },
     "quiet",
   );

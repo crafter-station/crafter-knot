@@ -1,3 +1,5 @@
+import type { Quat } from "../math/quat";
+
 export const PATTERNS = ["none", "rings", "stripes", "checker", "dots"] as const;
 export const ENDS = ["round", "flat"] as const;
 export const FACETS = [0, 3, 4, 5, 6, 8] as const;
@@ -163,7 +165,7 @@ export const GEOMETRY: readonly (keyof Look)[] = ["facets", "twist", "ends", "th
 const FINISH = {
   color: "#111111",
   accent: "#ffffff",
-  background: "#ffffff",
+  background: "#000000",
   metalness: 0,
   roughness: 0.06,
   clearcoat: 0,
@@ -180,16 +182,17 @@ export type Finish = { -readonly [K in keyof typeof FINISH]: Look[K] };
 const finish = (overrides: Partial<Finish>): Finish => ({ ...FINISH, ...overrides });
 
 export const FINISHES: readonly (readonly [name: string, finish: Finish])[] = [
-  ["Lacquer", finish({})],
-  ["Chrome", finish({ color: "#e4e6ea", metalness: 1, roughness: 0.04, background: "#101012" })],
-  ["Gold", finish({ color: "#f5c46a", metalness: 1, roughness: 0.2, background: "#f3eee5" })],
-  ["Porcelain", finish({ color: "#f2f0eb", roughness: 0.3, clearcoat: 0.8, background: "#18181b" })],
-  ["Rubber", finish({ color: "#1d1d1f", roughness: 0.78 })],
+  ["Lacquer", finish({ color: "#525252", roughness: 0, clearcoat: 1, scale: 1, slant: -2 })],
+  ["Chrome", finish({ color: "#e4e6ea", metalness: 1, roughness: 0.04 })],
+  ["Gold", finish({ color: "#f5c46a", metalness: 1, roughness: 0.2 })],
+  ["Porcelain", finish({ color: "#f2f0eb", roughness: 0.3, clearcoat: 0.8 })],
+  ["Rubber", finish({ color: "#1d1d1f", roughness: 0.78, background: "#ffffff" })],
   [
     "Candy",
     finish({
       color: "#f6f3ee",
       accent: "#d8321f",
+      background: "#ffffff",
       roughness: 0.35,
       clearcoat: 1,
       pattern: "stripes",
@@ -197,16 +200,14 @@ export const FINISHES: readonly (readonly [name: string, finish: Finish])[] = [
       slant: 0.5,
     }),
   ],
-  [
-    "Pearl",
-    finish({ color: "#f3ece6", roughness: 0.18, clearcoat: 1, iridescence: 1, background: "#1c1b20" }),
-  ],
-  ["Neon", finish({ color: "#39e6ff", roughness: 0.3, glow: 1.3, bloom: 1.2, background: "#07070a" })],
+  ["Pearl", finish({ color: "#f3ece6", roughness: 0.18, clearcoat: 1, iridescence: 1 })],
+  ["Neon", finish({ color: "#39e6ff", roughness: 0.3, glow: 0.9, bloom: 0.9 })],
   [
     "Carbon",
     finish({
       color: "#161617",
       accent: "#2d2d30",
+      background: "#ffffff",
       roughness: 0.45,
       clearcoat: 1,
       pattern: "checker",
@@ -217,25 +218,27 @@ export const FINISHES: readonly (readonly [name: string, finish: Finish])[] = [
 ];
 
 export const DEFAULT_LOOK: Look = {
-  ...FINISH,
-  thickness: 1.8,
-  flatten: 1,
+  ...FINISHES[0][1],
+  thickness: 1.4,
+  flatten: 1.27,
   facets: 0,
   twist: 0,
   ends: "round",
-  environment: "studio",
-  backdrop: "color",
-  blur: 0,
+  environment: "sunrise",
+  backdrop: "scene",
+  blur: 0.24,
   exposure: 1,
-  highlights: 1,
-  fill: 1,
+  highlights: 2.7,
+  fill: 0.81,
   rim: 1,
   light: 0,
-  vignette: 0,
-  zoom: 1,
-  perspective: 0,
-  spin: 0,
+  vignette: 0.1,
+  zoom: 0.5654,
+  perspective: 70,
+  spin: 13,
 };
+
+export const DEFAULT_POSE: Quat = [-0.1566, -0.7877, 0.1413, 0.5788];
 
 const HEX = /^#[0-9a-f]{6}$/i;
 

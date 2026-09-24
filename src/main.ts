@@ -6,7 +6,7 @@ import { layout } from "./layout";
 import { fromEuler } from "./math/quat";
 import { createPoster } from "./poster";
 import { createRenderer } from "./render/renderer";
-import { GEOMETRY, limit, luminance, type Look } from "./state/look";
+import { DEFAULT_POSE, GEOMETRY, limit, type Look } from "./state/look";
 import { load, save } from "./state/saved";
 import { snapshot } from "./state/snapshot";
 import { createStore } from "./state/store";
@@ -14,10 +14,20 @@ import { createDrawer, type Drawer } from "./ui/drawer";
 import "./styles.css";
 
 const SETTLE = 400;
+const SHOW_HINT = 3000;
+const HIDE_HINT = 9000;
 
 const canvas = document.querySelector<HTMLCanvasElement>("#stage")!;
 const hint = document.querySelector<HTMLElement>("#hint")!;
-if (matchMedia("(pointer: coarse)").matches) hint.textContent = "Drag to turn";
+if (matchMedia("(pointer: coarse)").matches) hint.textContent = "Drag to turn · pinch to zoom";
+const showing = window.setTimeout(() => hint.toggleAttribute("data-visible", true), SHOW_HINT);
+const hiding = window.setTimeout(() => hint.removeAttribute("data-visible"), HIDE_HINT);
+const settle = (text?: string) => {
+  clearTimeout(showing);
+  clearTimeout(hiding);
+  if (text) hint.textContent = text;
+  hint.toggleAttribute("data-visible", Boolean(text));
+};
 const params = new URLSearchParams(location.search);
 const fitted = layout(Number(params.get("frame")) || undefined);
 const turn = params
@@ -26,7 +36,9 @@ const turn = params
   .map((degrees) => (Number(degrees) * Math.PI) / 180);
 const saved = load();
 const look = createStore(saved.look);
-const pose = createPose(turn ? fromEuler(turn[1] ?? 0, turn[0] ?? 0, 0) : (saved.orientation ?? undefined));
+const pose = createPose(
+  turn ? fromEuler(turn[1] ?? 0, turn[0] ?? 0, 0) : (saved.orientation ?? DEFAULT_POSE),
+);
 const shapeOf = ({ facets, twist, ends, thickness }: Look): Shape => ({ facets, twist, ends, thickness });
 const builder = createBuilder();
 
@@ -61,9 +73,7 @@ const reshape = async () => {
 };
 
 const apply = () => {
-  const { background, spin, environment, backdrop } = look.get();
-  const scenic = environment !== "studio" && backdrop === "scene";
-  document.documentElement.dataset.tone = !scenic && luminance(background) > 0.3 ? "light" : "dark";
+  const { background, spin } = look.get();
   document.body.style.background = background;
   pose.spin(spin);
   renderer.invalidate();
@@ -74,7 +84,7 @@ apply();
 
 attachPointer(canvas, pose, {
   change: () => {
-    hint.dataset.hidden = "";
+    settle();
     renderer.invalidate();
   },
   zoom: (factor) => look.set({ zoom: limit("zoom", look.get().zoom * factor) }),
@@ -86,6 +96,6 @@ renderer.ready.catch((error: unknown) => {
   fit();
   window.addEventListener("resize", fit);
   document.body.append(poster.element);
-  hint.textContent = "Turning it needs WebGPU";
+  settle("Turning it needs WebGPU");
   console.error(error);
 });
