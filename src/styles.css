@@ -71,6 +71,38 @@ body {
   transform: translate(-50%, 0);
 }
 
+.source {
+  position: fixed;
+  top: calc(16px + env(safe-area-inset-top));
+  left: calc(16px + env(safe-area-inset-left));
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--fg);
+  mix-blend-mode: difference;
+  opacity: 0.3;
+  transition: opacity 0.25s ease;
+}
+
+.source:hover,
+.source:focus-visible {
+  opacity: 0.8;
+}
+
+.source:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+}
+
+.source svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
 .poster {
   position: fixed;
   left: 50%;
